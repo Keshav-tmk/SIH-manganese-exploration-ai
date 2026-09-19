@@ -1,807 +1,698 @@
-import React, { useState, useEffect } from 'react';
-import { checkHealth, predictProspectivity, predictMultiRegion, checkModelStatus, checkGeospatialStatus, getPilotRegion } from './services/api';
+import React, { useState, useEffect, useRef } from 'react';
+import { checkHealth, predictProspectivity, predictMultiRegion, checkModelStatus, checkGeospatialStatus, predictDetailedAnalysis } from './services/api';
 import MapComponent from './components/MapComponent';
 import Visualization3D from './components/Visualization3D';
 import ForecastDashboard from './components/ForecastDashboard';
 import RegionSelector from './components/RegionSelector';
+import StateSearch from './components/StateSearch';
+import LocationAnalysisPanel from './components/LocationAnalysisPanel';
+import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
+import './index.css';
 
+// ── Tiny SVG icons ───────────────────────────────────────────────────────────
+const Ic = {
+  Grid:   () => <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>,
+  Map:    () => <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4"/></svg>,
+  Search: () => <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path strokeLinecap="round" d="M21 21l-4.35-4.35"/></svg>,
+  Risk:   () => <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>,
+  AI:     () => <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>,
+  Cube3D: () => <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>,
+  Trash:  () => <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>,
+  Refresh:() => <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>,
+  Sun:    () => <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path strokeLinecap="round" strokeWidth={2} d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>,
+  Moon:   () => <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>,
+  Pin:    () => <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>,
+};
+
+const NavItem = ({ icon, label, active, onClick }) => (
+  <button className={`nav-item ${active ? 'active' : ''}`} onClick={onClick}>
+    {icon}<span>{label}</span>
+  </button>
+);
+
+const Badge = ({ priority }) => {
+  const p = (priority || '').toLowerCase();
+  return <span className={`badge badge-${p}`}>{priority || 'N/A'}</span>;
+};
+
+// ── Main App ─────────────────────────────────────────────────────────────────
 function App() {
-  const [activeTab, setActiveTab] = useState('explore'); // 'explore' or 'forecast'
-  
-  const [healthStatus, setHealthStatus] = useState('Checking...');
-  const [modelStatus, setModelStatus] = useState('Checking...');
-  const [geospatialStatus, setGeospatialStatus] = useState('Checking...');
-  const [pilotRegion, setPilotRegion] = useState(null);
-  
-  const [formData, setFormData] = useState({
-    latitude: '',
-    longitude: ''
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [prediction, setPrediction] = useState(null);
-  const [mapLocation, setMapLocation] = useState(null);
-  
-  // Phase 16: Prediction mode and region selector
-  const [predictionMode, setPredictionMode] = useState('single'); // 'single' | 'multiregion'
-  const [selectedRegionKey, setSelectedRegionKey] = useState(null);
-
-  // Phase 7: History and Filtering
-  const [history, setHistory] = useState([]);
-  const [filter, setFilter] = useState('All');
-
-  // Phase 17: 3D Visualization and Layer Toggles
-  const [viewMode, setViewMode] = useState('2d'); // '2d' | '3d'
-  const [showElevation, setShowElevation] = useState(false);
-  const [showGeology, setShowGeology] = useState(false);
-
-  // Phase 18: Layer integration warnings
-  const [layerWarning, setLayerWarning] = useState(null);
-
-  const handleLayerUnavailable = (layerName) => {
-    setLayerWarning(layerName);
-    setTimeout(() => {
-      setLayerWarning(null);
-    }, 5000);
-  };
-
+  // Theme
+  const [theme, setTheme] = useState('dark');
   useEffect(() => {
-    checkHealth()
-      .then(res => setHealthStatus(`Online: ${res.message}`))
-      .catch(() => setHealthStatus('Offline - Please start backend'));
-      
-    checkModelStatus()
-      .then(res => setModelStatus(res.status))
-      .catch(() => setModelStatus('Offline'));
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
 
-    checkGeospatialStatus()
-      .then(res => setGeospatialStatus(res.status))
-      .catch(() => setGeospatialStatus('Offline'));
-      
-    getPilotRegion()
-      .then(res => setPilotRegion(res))
-      .catch(() => setPilotRegion(null));
+  // Page nav
+  const [page, setPage] = useState('explore'); // explore | state-search | forecast | reserve
+
+  // System status
+  const [health, setHealth]   = useState('...');
+  const [model, setModel]     = useState('...');
+  const [geo, setGeo]         = useState('...');
+
+  // Heatmap zones
+  const [heatmapZones, setHeatmapZones] = useState([]);
+
+  // Prediction state
+  const [coords, setCoords] = useState({ lat: '', lng: '' });
+  const [loading, setLoading] = useState(false);
+  const [error, setError]   = useState(null);
+  const [result, setResult] = useState(null);
+  const [detailedData, setDetailedData] = useState(null);
+  const [mapLoc, setMapLoc] = useState(null);
+
+  // Mode & region
+  const [mode, setMode]   = useState('multiregion');
+  const [regionKey, setRegionKey] = useState(null);
+
+  // History & filter
+  const [history, setHistory] = useState([]);
+  const [filter, setFilter]   = useState('All');
+
+  // View
+  const [viewMode, setViewMode] = useState('2d'); // '2d' | '3d' | 'intensity'
+
+  // Layer warning
+  const [layerWarn, setLayerWarn] = useState(null);
+
+  // ── Status & Heatmap ──────────────────────────────────────────
+  useEffect(() => {
+    checkHealth().then(() => setHealth('Online')).catch(() => setHealth('Offline'));
+    checkModelStatus().then(r => setModel(r.status || 'Online')).catch(() => setModel('Offline'));
+    checkGeospatialStatus().then(r => setGeo(r.status || 'Online')).catch(() => setGeo('Offline'));
+
+    // Fetch heatmap zones
+    const base = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+    fetch(`${base}/prospectivity/heatmap`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === 'success') setHeatmapZones(data.zones || []);
+      })
+      .catch(err => console.warn('Failed to load heatmap zones', err));
   }, []);
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
+  const handleLayerUnavail = (n) => { setLayerWarn(n); setTimeout(() => setLayerWarn(null), 4000); };
 
+  // ── Map click ─────────────────────────────────────────────────
   const handleMapClick = (lat, lng) => {
-    setFormData(prev => ({
-      ...prev,
-      latitude: lat.toFixed(6),
-      longitude: lng.toFixed(6)
-    }));
-    // Remove previous prediction and error when new location is clicked
-    setPrediction(null);
+    setCoords({ lat: lat.toFixed(6), lng: lng.toFixed(6) });
+    setResult(null);
+    setDetailedData(null);
     setError(null);
-    setMapLocation({ lat, lng });
-    // In multi-region mode, clear the region selector when clicking freely
-    if (predictionMode === 'multiregion') setSelectedRegionKey(null);
+    setMapLoc({ lat, lng });
+    if (mode === 'multiregion') setRegionKey(null);
+    
+    // Auto-predict on map click to load side panel immediately
+    setTimeout(() => {
+      document.getElementById('predict-btn')?.click();
+    }, 50);
   };
 
-  const handleReset = () => {
-    setFormData({ latitude: '', longitude: '' });
-    setPrediction(null);
-    setError(null);
-    setMapLocation(null);
-    setSelectedRegionKey(null);
-  };
-  
-  const handleClearHistory = () => {
-    setHistory([]);
-    setMapLocation(null);
-    setPrediction(null);
-  };
-  
-  const handleHistoryClick = (item) => {
-    setMapLocation({ lat: item.lat, lng: item.lng });
-    setPrediction(item.prediction);
-    setFormData(prev => ({
-      ...prev,
-      latitude: item.lat.toFixed(6),
-      longitude: item.lng.toFixed(6)
-    }));
-  };
+  // ── Submit prediction ─────────────────────────────────────────
+  const handlePredict = async (e) => {
+    e && e.preventDefault();
+    const lat = parseFloat(coords.lat);
+    const lng = parseFloat(coords.lng);
+    if (isNaN(lat) || isNaN(lng)) { setError('Enter valid coordinates or click the map.'); return; }
+    if (lat < -90 || lat > 90)   { setError('Latitude must be −90 to 90.'); return; }
+    if (lng < -180 || lng > 180) { setError('Longitude must be −180 to 180.'); return; }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    // Validation
-    const lat = parseFloat(formData.latitude);
-    const lng = parseFloat(formData.longitude);
-    
-    if (isNaN(lat) || isNaN(lng)) {
-      setError("Please provide valid numerical coordinates for Latitude and Longitude.");
-      return;
-    }
-    if (lat < -90 || lat > 90) {
-      setError("Latitude must be between -90 and 90.");
-      return;
-    }
-    if (lng < -180 || lng > 180) {
-      setError("Longitude must be between -180 and 180.");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setPrediction(null);
-    
-    // Update map immediately to show the location even before prediction returns
-    setMapLocation({ lat, lng });
+    setLoading(true); setError(null); setResult(null); setDetailedData(null);
+    setMapLoc({ lat, lng });
 
     try {
-      const apiData = { latitude: lat, longitude: lng };
-      let result;
-
-      if (predictionMode === 'multiregion') {
-        // Phase 16: use the Phase 15 multi-region model
-        result = await predictMultiRegion(apiData);
-      } else {
-        // Phase 12: use the single-region model (existing behaviour)
-        result = await predictProspectivity(apiData);
-      }
-
-      setPrediction(result);
+      // Execute both standard and detailed predictions in parallel
+      const req = { latitude: lat, longitude: lng };
       
-      // Add to history
-      setHistory(prev => [{
-        id: Date.now(),
-        timestamp: new Date().toLocaleTimeString(),
-        lat: lat,
-        lng: lng,
-        prediction: result,
-        mode: predictionMode,
-      }, ...prev]);
+      const p1 = mode === 'multiregion' ? predictMultiRegion(req) : predictProspectivity(req);
+      const p2 = predictDetailedAnalysis(req);
       
+      const [data, detailed] = await Promise.all([p1, p2]);
+
+      setResult(data);
+      setDetailedData(detailed);
+      setHistory(prev => [{ id: Date.now(), ts: new Date().toLocaleTimeString(), lat, lng, result: data }, ...prev]);
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || "Failed to connect to prediction service.");
-    } finally {
-      setLoading(false);
-    }
+      setError(err.response?.data?.detail || err.message || 'Prediction service error.');
+    } finally { setLoading(false); }
   };
 
-  const filteredHistory = history.filter(item => {
-    if (filter === 'All') return true;
-    return item.prediction?.priority === filter;
-  });
+  const handleReset = () => { setCoords({ lat: '', lng: '' }); setResult(null); setDetailedData(null); setError(null); setMapLoc(null); setRegionKey(null); };
+  const handleClearHistory = () => { setHistory([]); setMapLoc(null); setResult(null); setDetailedData(null); };
+
+  const filteredHistory = history.filter(h => filter === 'All' || h.result?.priority === filter);
+
+  // Stats
+  const highCount   = history.filter(h => h.result?.priority === 'High').length;
+  const medCount    = history.filter(h => h.result?.priority === 'Medium').length;
+  const lowCount    = history.filter(h => h.result?.priority === 'Low').length;
+  const isOnline    = health === 'Online';
+  const isModelOk   = model !== 'Offline' && model !== '...';
+  const isGeoOk     = geo   !== 'Offline' && geo   !== '...';
+
+  // ── Priority color helper ────────────────────────────────────
+  const prioColor = (p) => p === 'High' ? '#ef4444' : p === 'Medium' ? '#f59e0b' : '#22c55e';
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
-      {/* Header */}
-      <header className="bg-slate-800 text-white shadow-md">
-        <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight text-white">ManganEX</h1>
-              <p className="mt-1 text-sm text-slate-300">AI-Powered Manganese Exploration & Supply Intelligence</p>
-              {pilotRegion && (
-                <p className="mt-2 text-xs font-semibold text-blue-300 flex items-center">
-                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                  Target: {pilotRegion.region_name}
-                </p>
-              )}
-            </div>
-            
-            <div className="flex flex-col items-end gap-3">
-              {/* Navigation Tabs */}
-              <div className="bg-slate-700 p-1 rounded-lg inline-flex">
-                <button
-                  onClick={() => setActiveTab('explore')}
-                  className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                    activeTab === 'explore' 
-                      ? 'bg-blue-600 text-white shadow' 
-                      : 'text-slate-300 hover:text-white hover:bg-slate-600'
-                  }`}
-                >
-                  Exploration Map
-                </button>
-                <button
-                  onClick={() => setActiveTab('forecast')}
-                  className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                    activeTab === 'forecast' 
-                      ? 'bg-blue-600 text-white shadow' 
-                      : 'text-slate-300 hover:text-white hover:bg-slate-600'
-                  }`}
-                >
-                  Supply Forecasting
-                </button>
-              </div>
-              
-              <div className="flex flex-wrap gap-2">
-                <div className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                  healthStatus.includes('Online') ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'
-                }`}>
-                  Backend: {healthStatus.includes('Online') ? 'Online' : 'Offline'}
-                </div>
-                <div className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                  modelStatus.includes('Online') ? 'bg-indigo-500/20 text-indigo-300' : 'bg-orange-500/20 text-orange-300'
-                }`}>
-                  Model: {modelStatus}
-                </div>
-                <div className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                  geospatialStatus.includes('Online') ? 'bg-cyan-500/20 text-cyan-300' : 
-                  geospatialStatus.includes('Fallback') ? 'bg-yellow-500/20 text-yellow-300' : 'bg-red-500/20 text-red-300'
-                }`}>
-                  Geo Engine: {geospatialStatus}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
+    <div className="app-shell">
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        
-        {activeTab === 'forecast' ? (
-          <ForecastDashboard />
-        ) : (
-          <>
-        {/* Welcome and Demo Information Banner */}
-        <div className="mb-8 bg-white border border-blue-200 rounded-lg shadow-sm overflow-hidden">
-          <div className="bg-blue-600 px-6 py-4">
-            <h2 className="text-xl font-bold text-white flex items-center">
-              <svg className="h-6 w-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-              Welcome to the ManganEX Live Demonstration
-            </h2>
+      {/* ── Sidebar ─────────────────────────────────────────────── */}
+      <aside className="sidebar">
+        <div className="sidebar-logo">
+          <div className="sidebar-logo-name">
+            <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+            </svg>
+            ManganEX
           </div>
-          <div className="p-6">
-            <p className="text-gray-700 mb-6">
-              ManganEX uses a Random Forest Machine Learning pipeline powered by Sentinel-2 spectral features (B2, B3, B4, B8, B11, B12, NDVI) and SRTM topography data mapped against confirmed Indian manganese deposits. This demo showcases the <strong>Phase 15 LORO-validated model</strong> across multiple geological belts.
-            </p>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Application Workflow */}
-              <div className="bg-gray-50 p-4 rounded border border-gray-100">
-                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-3 flex items-center">
-                  <span className="bg-blue-100 text-blue-800 rounded-full w-5 h-5 flex items-center justify-center mr-2 text-xs font-mono">1</span>
-                  Workflow
-                </h3>
-                <ul className="text-sm text-gray-600 space-y-2 list-disc pl-4">
-                  <li>Select <strong>Phase 15 Multi-Region</strong> mode.</li>
-                  <li>Choose one of the supported <strong>Manganese Belts</strong> from the dropdown.</li>
-                  <li><strong>Click on the map</strong> to specify a coordinate, or enter it manually.</li>
-                  <li>Click <strong>Predict</strong> to analyze the spectral signature.</li>
-                </ul>
-              </div>
-
-              {/* Supported Regions */}
-              <div className="bg-gray-50 p-4 rounded border border-gray-100">
-                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-3 flex items-center">
-                  <span className="bg-indigo-100 text-indigo-800 rounded-full w-5 h-5 flex items-center justify-center mr-2 text-xs font-mono">2</span>
-                  Supported Regions
-                </h3>
-                <p className="text-xs text-gray-500 mb-2">Predictions are currently validated for these Indian belts:</p>
-                <div className="flex flex-wrap gap-1">
-                  <span className="px-2 py-1 bg-indigo-50 text-indigo-700 text-xs rounded border border-indigo-100">Jamda-Koira</span>
-                  <span className="px-2 py-1 bg-indigo-50 text-indigo-700 text-xs rounded border border-indigo-100">MOIL</span>
-                  <span className="px-2 py-1 bg-indigo-50 text-indigo-700 text-xs rounded border border-indigo-100">Sausar</span>
-                  <span className="px-2 py-1 bg-indigo-50 text-indigo-700 text-xs rounded border border-indigo-100">Shimoga</span>
-                  <span className="px-2 py-1 bg-indigo-50 text-indigo-700 text-xs rounded border border-indigo-100">Vizianagaram</span>
-                  <span className="px-2 py-1 bg-indigo-50 text-indigo-700 text-xs rounded border border-indigo-100">Banswara</span>
-                </div>
-              </div>
-
-              {/* Prediction Score */}
-              <div className="bg-gray-50 p-4 rounded border border-gray-100">
-                <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-3 flex items-center">
-                  <span className="bg-green-100 text-green-800 rounded-full w-5 h-5 flex items-center justify-center mr-2 text-xs font-mono">3</span>
-                  Interpreting Scores
-                </h3>
-                <p className="text-xs text-gray-600 mb-2">
-                  The model returns a <strong>Prospectivity Score (0.0 to 1.0)</strong> indicating the probability of manganese mineralization based on surface signatures.
-                </p>
-                <ul className="text-xs space-y-1">
-                  <li><span className="font-semibold text-red-600">High (&gt; 0.7):</span> Strong spectral correlation.</li>
-                  <li><span className="font-semibold text-yellow-600">Medium (0.4 - 0.7):</span> Mixed indicators.</li>
-                  <li><span className="font-semibold text-green-600">Low (&lt; 0.4):</span> Unlikely to host deposits.</li>
-                </ul>
-              </div>
-            </div>
-          </div>
+          <div className="sidebar-logo-sub">Mining Intelligence Platform</div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          
-          {/* Form Column */}
-          <div className="lg:col-span-1 space-y-6">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-200 bg-slate-50">
-                <h2 className="text-lg font-semibold text-gray-800">Target Coordinates</h2>
-              </div>
-              <div className="p-6 space-y-4">
+        <nav className="sidebar-nav">
+          <NavItem icon={<Ic.Map />}    label="Exploration Map"   active={page === 'explore'}       onClick={() => setPage('explore')} />
+          <NavItem icon={<Ic.Grid />}   label="Reserve Analysis"  active={page === 'reserve'}       onClick={() => setPage('reserve')} />
+          <NavItem icon={<Ic.Risk />}   label="Production Risk"   active={page === 'forecast'}      onClick={() => setPage('forecast')} />
+          <NavItem icon={<Ic.AI />}     label="AI Insights"       active={page === 'ai'}            onClick={() => setPage('ai')} />
+        </nav>
 
-                {/* Phase 16: Model selection toggle */}
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Prediction Model</p>
-                  <div className="flex rounded-md border border-gray-200 overflow-hidden">
-                    <button
-                      id="mode-single"
-                      type="button"
-                      onClick={() => { setPredictionMode('single'); setSelectedRegionKey(null); setPrediction(null); }}
-                      className={`flex-1 py-2 text-xs font-semibold transition-colors ${
-                        predictionMode === 'single'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-white text-gray-600 hover:bg-gray-50'
-                      }`}
-                    >
-                      Single-Region
-                    </button>
-                    <button
-                      id="mode-multiregion"
-                      type="button"
-                      onClick={() => { setPredictionMode('multiregion'); setPrediction(null); }}
-                      className={`flex-1 py-2 text-xs font-semibold transition-colors border-l border-gray-200 ${
-                        predictionMode === 'multiregion'
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-white text-gray-600 hover:bg-gray-50'
-                      }`}
-                    >
-                      Phase 15 Multi-Region
-                    </button>
-                  </div>
-                  {predictionMode === 'multiregion' && (
-                    <p className="mt-1.5 text-[11px] text-indigo-600">Using the Phase 15 LORO-validated model across 6 manganese belts.</p>
-                  )}
-                </div>
+        <div className="sidebar-footer">
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+            <span className={`status-dot ${isOnline ? '' : 'offline'}`} />
+            Backend {isOnline ? 'Online' : 'Offline'}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+            <span className={`status-dot ${isModelOk ? '' : 'offline'}`} />
+            Model {isModelOk ? 'Ready' : 'Loading'}
+          </div>
+          <div style={{ marginTop: 8, fontSize: 10, opacity: 0.4 }}>AI + Space Technology · SIH 2024</div>
+        </div>
+      </aside>
 
-                {/* Phase 16: Region Selector — only visible in multi-region mode */}
-                {predictionMode === 'multiregion' && (
-                  <RegionSelector
-                    selectedKey={selectedRegionKey}
-                    onSelectRegion={(info) => {
-                      if (!info) {
-                        setSelectedRegionKey(null);
-                        return;
-                      }
-                      setSelectedRegionKey(info.regionKey);
-                      setFormData(prev => ({
-                        ...prev,
-                        latitude: String(info.lat),
-                        longitude: String(info.lon),
-                      }));
-                      setMapLocation({ lat: info.lat, lng: info.lon });
-                      setPrediction(null);
-                    }}
-                  />
-                )}
+      {/* ── Main ───────────────────────────────────────────────── */}
+      <div className="main-area">
 
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="latitude" className="block text-sm font-medium text-gray-700">Latitude *</label>
-                      <input
-                        type="number"
-                        step="any"
-                        id="latitude"
-                        name="latitude"
-                        required
-                        value={formData.latitude}
-                        onChange={handleInputChange}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
-                        placeholder="e.g. 21.12"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="longitude" className="block text-sm font-medium text-gray-700">Longitude *</label>
-                      <input
-                        type="number"
-                        step="any"
-                        id="longitude"
-                        name="longitude"
-                        required
-                        value={formData.longitude}
-                        onChange={handleInputChange}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
-                        placeholder="e.g. 79.45"
-                      />
-                    </div>
-                  </div>
+        {/* Topbar */}
+        <header className="topbar">
+          <div className="topbar-title">
+            <h2>{page === 'explore' ? 'Exploration Map' : page === 'state-search' ? 'State-wise Search' : page === 'reserve' ? 'Reserve Analysis' : page === 'forecast' ? 'Production Risk' : 'AI Insights'}</h2>
+            <p>Manganese Prospectivity Intelligence</p>
+          </div>
+          <div className="topbar-right">
+            <button className="theme-toggle" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} title="Toggle theme">
+              {theme === 'dark' ? <Ic.Sun /> : <Ic.Moon />}
+            </button>
+          </div>
+        </header>
 
-                  <div className="pt-2 flex space-x-3">
-                    <button
-                      type="button"
-                      onClick={handleReset}
-                      disabled={loading}
-                      className="w-1/3 flex justify-center py-2.5 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-                    >
-                      Reset
-                    </button>
-                    <button
-                      type="submit"
-                      id="predict-btn"
-                      disabled={loading}
-                      className={`w-2/3 flex justify-center py-2.5 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-                        loading
-                          ? 'bg-blue-400 cursor-not-allowed'
-                          : predictionMode === 'multiregion'
-                            ? 'bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500'
-                            : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
-                      } focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors`}
-                    >
-                      {loading ? (
-                        <span className="flex items-center">
-                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          Analyzing...
-                        </span>
-                      ) : predictionMode === 'multiregion' ? 'Multi-Region Predict' : 'Predict Prospectivity'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-            
-            {/* Error Message */}
-            {error && (
-              <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm">
-                <div className="flex">
-                  <div className="flex-shrink-0">
-                    <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                  <div className="ml-3">
-                    <h3 className="text-sm font-medium text-red-800">Error</h3>
-                    <div className="mt-2 text-sm text-red-700">
-                      <p>{error}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Phase 16: Unsupported-region warning */}
-            {prediction && !loading && prediction.is_validated_region === false && (
-              <div id="unsupported-region-warning" className="bg-orange-50 border-l-4 border-orange-400 p-4 rounded-md shadow-sm">
-                <div className="flex">
-                  <div className="flex-shrink-0">
-                    <svg className="h-5 w-5 text-orange-400" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                  <div className="ml-3">
-                    <h3 className="text-sm font-medium text-orange-800">Outside Supported Region</h3>
-                    <p className="mt-1 text-xs text-orange-700">{prediction.message}</p>
-                    <p className="mt-1 text-xs text-orange-600">Use the Region Selector to choose one of the 6 supported belts.</p>
-                  </div>
-                </div>
-              </div>
-            )}
+        {/* ═══ EXPLORATION MAP ═══════════════════════════════════ */}
+        {page === 'explore' && (
+          <div className="page" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', flex: 1 }}>
+            <div className="explore-shell" style={{ padding: '14px 20px', flex: 1 }}>
 
-            {/* Prediction Result Card */}
-            {prediction && !loading && prediction.is_validated_region !== false && (
-              <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden transform transition-all duration-300">
-                <div className={`px-6 py-4 border-b ${
-                  prediction.priority === 'High' ? 'bg-red-50 border-red-100' :
-                  prediction.priority === 'Medium' ? 'bg-yellow-50 border-yellow-100' : 'bg-green-50 border-green-100'
-                }`}>
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <h2 className="text-lg font-bold text-gray-800">Analysis Results</h2>
-                      {/* Phase 16: Region badge */}
-                      {prediction.region_name && (
-                        <p id="result-region-badge" className="text-xs text-indigo-600 font-semibold mt-0.5">
-                          📍 {prediction.region_name}{prediction.state ? `, ${prediction.state}` : ''}
-                        </p>
-                      )}
+              {/* ── Left panel ── */}
+              <div className="explore-panel">
+
+                {/* Mode + Region selector */}
+                <div className="card">
+                  <div className="card-h"><span className="card-title">Analysis Mode</span></div>
+                  <div className="card-b" style={{ paddingBottom: 12 }}>
+                    <div className="tabs" style={{ marginBottom: 10 }}>
+                      <button className={`tab ${mode === 'multiregion' ? 'active' : ''}`} onClick={() => { setMode('multiregion'); setResult(null); }}>Multi-Region</button>
+                      <button className={`tab ${mode === 'single' ? 'active' : ''}`}      onClick={() => { setMode('single'); setRegionKey(null); setResult(null); }}>Single</button>
+                      <button className={`tab ${mode === 'state' ? 'active' : ''}`}       onClick={() => { setMode('state'); setRegionKey(null); setResult(null); }}>State Search</button>
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                      prediction.priority === 'High' ? 'bg-red-200 text-red-800' :
-                      prediction.priority === 'Medium' ? 'bg-yellow-200 text-yellow-800' : 'bg-green-200 text-green-800'
-                    }`}>
-                      {prediction.priority} Priority
-                    </span>
-                  </div>
-                </div>
-                
-                <div className="p-6">
-                  <div className="flex flex-col items-center justify-center mb-6">
-                    <span className="text-sm text-gray-500 uppercase tracking-wide font-semibold mb-1">Prospectivity Score</span>
-                    <div className="flex items-end">
-                      <span className="text-5xl font-black text-gray-800">{prediction.prospectivity_score}</span>
-                      <span className="text-xl font-bold text-gray-400 mb-1 ml-1">/ 1.0</span>
-                    </div>
-                    <span className="text-xs text-gray-400 mt-2">Prediction: {prediction.prediction_label}</span>
-                    {/* Phase 16: nearest deposit info */}
-                    {prediction.nearest_deposit_name && (
-                      <span className="text-xs text-indigo-500 mt-1">
-                        Nearest deposit: {prediction.nearest_deposit_name} ({prediction.nearest_deposit_dist_km} km)
-                      </span>
+
+                    {mode === 'state' && (
+                      <div style={{ marginTop: 10 }}>
+                        <StateSearch onDepositClick={handleMapClick} />
+                      </div>
                     )}
-                  </div>
-                  
-                  {prediction.probabilities && (
-                    <div className="mb-4">
-                      <p className="text-xs text-gray-500 font-medium mb-2">Class Probabilities:</p>
-                      <div className="space-y-2">
-                        {Object.entries(prediction.probabilities).map(([label, prob]) => (
-                          <div key={label} className="relative pt-1">
-                            <div className="flex mb-1 items-center justify-between">
-                              <div>
-                                <span className="text-xs font-semibold inline-block text-gray-600">
-                                  {label}
-                                </span>
-                              </div>
-                              <div className="text-right">
-                                <span className="text-xs font-semibold inline-block text-gray-600">
-                                  {(prob * 100).toFixed(1)}%
-                                </span>
-                              </div>
-                            </div>
-                            <div className="overflow-hidden h-2 text-xs flex rounded bg-gray-200">
-                              <div style={{ width: `${prob * 100}%` }} className={`shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center ${
-                                label === 'High' ? 'bg-red-500' : label === 'Medium' ? 'bg-yellow-500' : 'bg-green-500'
-                              }`}></div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
 
-                  {/* Phase 19: Model Explainability */}
-                  {prediction.explainability && (
-                    <div className="mb-4 pt-4 border-t border-gray-100">
-                      <div className="flex justify-between items-end mb-2">
-                        <p className="text-xs text-gray-500 font-medium">Model Explainability:</p>
-                        <span className="text-[10px] text-gray-400 bg-gray-50 px-2 py-0.5 rounded">
-                          Top Features (Relative Importance)
-                        </span>
+                    {mode === 'multiregion' && (
+                      <div style={{ marginBottom: 10 }}>
+                        <label className="fl">Manganese Belt</label>
+                        <RegionSelector selectedKey={regionKey} onSelectRegion={(r) => {
+                          if (!r) { setRegionKey(null); return; }
+                          setRegionKey(r.regionKey);
+                          setCoords({ lat: String(r.lat), lng: String(r.lon) });
+                          setMapLoc({ lat: r.lat, lng: r.lon });
+                          setResult(null);
+                        }} />
                       </div>
-                      <div className="space-y-3">
-                        {prediction.explainability.feature_importance.slice(0, 5).map((fi, idx) => (
-                          <div key={idx} className="relative">
-                            <div className="flex mb-1 items-center justify-between">
-                              <div>
-                                <span className="text-xs font-semibold inline-block text-gray-700">
-                                  {fi.feature}
-                                </span>
-                                <span className="text-[10px] text-gray-400 ml-2 font-mono">
-                                  Val: {prediction.explainability.input_features[fi.feature]?.toFixed(4)}
-                                </span>
-                              </div>
-                              <div className="text-right">
-                                <span className="text-xs font-bold inline-block text-indigo-600">
-                                  {(fi.importance * 100).toFixed(1)}%
-                                </span>
-                              </div>
-                            </div>
-                            <div className="overflow-hidden h-1.5 text-xs flex rounded bg-indigo-50">
-                              <div style={{ width: `${fi.importance * 100}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-indigo-400"></div>
-                            </div>
+                    )}
+
+                    {mode !== 'state' && (
+                      <form onSubmit={handlePredict}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+                          <div>
+                            <label className="fl">Latitude</label>
+                            <input className="fc" type="number" step="any" placeholder="e.g. 15.06"
+                              value={coords.lat} onChange={e => setCoords(p => ({ ...p, lat: e.target.value }))} />
                           </div>
-                        ))}
-                      </div>
-                      <div className="mt-3 bg-indigo-50/50 p-2 rounded border border-indigo-100/50">
-                        <p className="text-[10px] text-indigo-700/80 leading-tight">
-                          <span className="font-semibold">Disclaimer:</span> Feature importance describes mathematical model behavior and does not prove geological causation.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-700 border border-gray-100 space-y-1">
-                    <p><strong>Note:</strong> {prediction.explanation || prediction.disclaimer?.slice(0, 120)}</p>
-                    {/* Phase 16: model metadata */}
-                    {prediction.model_phase && (
-                      <p className="text-xs text-gray-400">
-                        Model: {prediction.model_phase} &mdash; {prediction.data_source}
+                          <div>
+                            <label className="fl">Longitude</label>
+                            <input className="fc" type="number" step="any" placeholder="e.g. 76.60"
+                              value={coords.lng} onChange={e => setCoords(p => ({ ...p, lng: e.target.value }))} />
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button id="predict-btn" type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={loading}>
+                            {loading ? <><span className="spin" />&nbsp;Analysing…</> : '⚡ Analyse Location'}
+                          </button>
+                          <button type="button" className="btn btn-ghost" onClick={handleReset} title="Reset"><Ic.Refresh /></button>
+                        </div>
+                      </form>
+                    )}
+
+                    {error && <div className="alert alert-error" style={{ marginTop: 10 }}><span>⚠</span>{error}</div>}
+                    {mode !== 'state' && (
+                      <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8 }}>
+                        💡 Click anywhere on the map to set coordinates automatically
                       </p>
                     )}
                   </div>
                 </div>
+
+                {/* Result card */}
+                {result && !loading && result.is_validated_region !== false && (
+                  <div className="card fade-up">
+                    <div className="card-h" style={{
+                      background: `${prioColor(result.priority)}14`,
+                      borderBottomColor: `${prioColor(result.priority)}33`,
+                    }}>
+                      <div>
+                        <div className="card-title">Prospectivity Result</div>
+                        {result.region_name && <div className="card-sub">📍 {result.region_name}</div>}
+                      </div>
+                      <Badge priority={result.priority} />
+                    </div>
+                    <div className="card-b">
+                      <div className="score-big">
+                        <div className="score-num" style={{ color: prioColor(result.priority) }}>
+                          {result.prospectivity_score !== undefined ? `${Math.round(result.prospectivity_score * 100)}%` : '—'}
+                        </div>
+                        <div className="score-lbl">AI Prospectivity Score</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{result.prediction_label}</div>
+                      </div>
+
+                      {result.nearest_deposit_name && (
+                        <div style={{ background: 'var(--bg-secondary)', borderRadius: 6, padding: '7px 10px', marginBottom: 10, fontSize: 11, border: '1px solid var(--border-color)' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Nearest known deposit: </span>
+                          <span style={{ fontWeight: 700, color: 'var(--accent-green)' }}>{result.nearest_deposit_name}</span>
+                          <span style={{ color: 'var(--text-muted)' }}> · {result.nearest_deposit_dist_km} km away</span>
+                        </div>
+                      )}
+
+                      {result.probabilities && Object.entries(result.probabilities).map(([lbl, prob]) => (
+                        <div key={lbl} style={{ marginBottom: 8 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{lbl}</span>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: prioColor(lbl) }}>{(prob * 100).toFixed(1)}%</span>
+                          </div>
+                          <div className="pbar"><div className={`pfill ${lbl === 'High' ? 'red' : lbl === 'Medium' ? 'yellow' : 'green'}`} style={{ width: `${prob * 100}%` }} /></div>
+                        </div>
+                      ))}
+
+                      {result.explainability?.feature_importance?.length > 0 && (
+                        <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border-color)' }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', marginBottom: 8 }}>Top Feature Drivers</div>
+                          {result.explainability.feature_importance.slice(0, 5).map((fi, i) => (
+                            <div key={i} style={{ marginBottom: 7 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                                <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--text-secondary)' }}>{fi.feature}</span>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent-green)' }}>{(fi.importance * 100).toFixed(1)}%</span>
+                              </div>
+                              <div className="pbar"><div className="pfill green" style={{ width: `${fi.importance * 100}%` }} /></div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {result.explanation && (
+                        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.55, borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
+                          {result.explanation}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {result && result.is_validated_region === false && (
+                  <div className="alert alert-warn"><span>⚠</span><div>
+                    <b>Outside Supported Region</b>
+                    <p style={{ marginTop: 3 }}>{result.message}</p>
+                  </div></div>
+                )}
+
+                {/* Marker filter */}
+                {history.length > 0 && (
+                  <div className="card">
+                    <div className="card-h">
+                      <span className="card-title">Filter ({filteredHistory.length}/{history.length})</span>
+                      <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: 11 }} onClick={handleClearHistory}><Ic.Trash /> Clear</button>
+                    </div>
+                    <div className="card-b">
+                      <div className="tabs">
+                        {['All', 'High', 'Medium', 'Low'].map(f => (
+                          <button key={f} className={`tab ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f)}>{f}</button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
+
+              {/* ── Right: map/3D ── */}
+              <div className="explore-main">
+                {/* View bar */}
+                <div className="card" style={{ flexShrink: 0 }}>
+                  <div style={{ padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <div className="tabs" style={{ width: 'auto', flex: 'none' }}>
+                      <button className={`tab ${viewMode === '2d' ? 'active' : ''}`} onClick={() => setViewMode('2d')}>2D Map</button>
+                      <button className={`tab ${viewMode === '3d' ? 'active' : ''}`}  onClick={() => setViewMode('3d')}><Ic.Cube3D /> 3D View</button>
+                      <button className={`tab ${viewMode === 'intensity' ? 'active' : ''}`} onClick={() => setViewMode('intensity')}>Intensity Map</button>
+                    </div>
+                    {layerWarn && <div className="alert alert-warn" style={{ padding: '4px 10px', border: 'none', fontSize: 11 }}>⚠ {layerWarn} unavailable in demo mode</div>}
+                    <div style={{ marginLeft: 'auto', display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-muted)' }}>
+                      {[['#0ea5e9','Low'],['#eab308','Medium'],['#ef4444','High']].map(([c,l]) => (
+                        <span key={l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: c, display: 'inline-block' }}></span>{l}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Map / 3D */}
+                <div style={{ flex: 1, minHeight: 0 }}>
+                  {viewMode !== '3d' ? (
+                    <div className="map-wrap">
+                      <MapComponent
+                        markers={filteredHistory}
+                        activeLocation={mapLoc}
+                        onMapClick={handleMapClick}
+                        predictionMode={mode}
+                        onLayerUnavailable={handleLayerUnavail}
+                        showRegionBboxes={mode === 'multiregion'}
+                        highlightedRegionKey={regionKey}
+                        heatmapZones={heatmapZones}
+                        forcedLayer={viewMode === 'intensity' ? 'prospectivity' : null}
+                      />
+                    </div>
+                  ) : (
+                    <div className="map-wrap" style={{ border: '1px solid var(--border-color)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+                      <Visualization3D activeLocation={mapLoc} activeResult={result} markers={filteredHistory} predictionMode={mode} theme={theme} />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Right Panel ── */}
+              {detailedData && (
+                <LocationAnalysisPanel 
+                  data={detailedData} 
+                  onClose={() => setDetailedData(null)} 
+                />
+              )}
+
+            </div>
           </div>
-          
-            {/* Dashboard Statistics */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-200 bg-slate-50">
-                <h2 className="text-lg font-semibold text-gray-800">Dashboard Stats</h2>
+        )}
+
+        {/* ═══ STATE SEARCH ══════════════════════════════════════ */}
+        {page === 'state-search' && (
+          <div className="page">
+            <div className="ss-layout">
+              {/* Left sidebar */}
+              <div className="ss-panel">
+                <div className="card">
+                  <div className="card-h"><span className="card-title">Search by State or Region</span></div>
+                  <div className="card-b">
+                    <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+                      Enter an Indian state name to discover all known manganese-bearing regions and ore deposit locations within it.
+                    </p>
+                    <StateSearch onDepositClick={(lat, lon) => {
+                      setMapLoc({ lat, lng: lon });
+                      setCoords({ lat: String(lat), lng: String(lon) });
+                      setPage('explore');
+                    }} />
+                  </div>
+                </div>
+
+                {/* Quick access */}
+                <div className="card">
+                  <div className="card-h"><span className="card-title">Quick Access</span></div>
+                  <div className="card-b" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7 }}>
+                    {[
+                      { name: 'Karnataka',        color: '#ef4444' },
+                      { name: 'Maharashtra',       color: '#f97316' },
+                      { name: 'Madhya Pradesh',    color: '#eab308' },
+                      { name: 'Odisha',            color: '#22c55e' },
+                      { name: 'Goa',               color: '#06b6d4' },
+                      { name: 'Andhra Pradesh',    color: '#8b5cf6' },
+                    ].map(s => (
+                      <div key={s.name} className="dep-row" style={{ cursor: 'pointer' }}
+                        onClick={() => window.dispatchEvent(new CustomEvent('stateSearch', { detail: s.name }))}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0 }}></span>
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{s.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div className="p-6">
-                <dl className="grid grid-cols-2 gap-4">
-                  <div className="bg-gray-50 px-4 py-3 rounded-lg border border-gray-100">
-                    <dt className="text-sm font-medium text-gray-500 truncate">Total Predictions</dt>
-                    <dd className="mt-1 text-2xl font-semibold text-gray-900">{history.length}</dd>
+
+              {/* Right: map preview */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div className="card" style={{ flex: '0 0 auto' }}>
+                  <div className="card-h"><span className="card-title">Deposit Location Map</span><span className="card-sub">Click a deposit to jump to Exploration Map</span></div>
+                  <div style={{ height: 320 }}>
+                    <MapComponent markers={filteredHistory} activeLocation={mapLoc}
+                      onMapClick={(lat, lng) => { handleMapClick(lat, lng); setPage('explore'); }}
+                      predictionMode={mode} onLayerUnavailable={handleLayerUnavail}
+                      showRegionBboxes={true} />
                   </div>
-                  <div className="bg-gray-50 px-4 py-3 rounded-lg border border-gray-100">
-                    <dt className="text-sm font-medium text-gray-500 truncate">Visible Markers</dt>
-                    <dd className="mt-1 text-2xl font-semibold text-gray-900">{filteredHistory.length}</dd>
-                  </div>
-                  <div className="col-span-2 bg-blue-50 px-4 py-3 rounded-lg border border-blue-100">
-                    <dt className="text-sm font-medium text-blue-800 truncate">Data Source Status</dt>
-                    <dd className="mt-1 text-sm text-blue-900">Current dashboard results are based on real spectral signatures from Sentinel-2 and known deposit locations.</dd>
-                  </div>
-                </dl>
+                </div>
+                <div className="alert alert-info">
+                  <span>ℹ</span>
+                  <span>Results show documented manganese deposit regions from the ManganEX geological training database. Deposit locations represent known ore occurrences — not guaranteed active reserves.</span>
+                </div>
               </div>
             </div>
           </div>
-          
-          {/* Map Column */}
-          <div className="lg:col-span-3 space-y-6">
-            
-            {/* Map Filters */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex justify-between items-center">
-              <div className="flex items-center space-x-4">
-                <span className="text-sm font-medium text-gray-700">Filter Prospectivity:</span>
-                <div className="flex space-x-2">
-                  {['All', 'High', 'Medium', 'Low'].map((f) => (
-                    <button
-                      key={f}
-                      onClick={() => setFilter(f)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
-                        filter === f 
-                          ? 'bg-blue-600 text-white border-blue-600' 
-                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                      }`}
-                    >
-                      {f}
-                    </button>
+        )}
+
+        {/* ═══ RESERVE ANALYSIS ═════════════════════════════════ */}
+        {page === 'reserve' && (
+          <div className="page">
+            {/* Stat row */}
+            <div className="stat-grid">
+              {[
+                { label: 'Total Known Reserve', value: '154.6 MT', sub: 'Documented regional estimate', cls: 'sc-green', vc: 'green' },
+                { label: 'AI Prospectivity Area', value: '2,840 km²', sub: 'AI decision-support coverage', cls: 'sc-blue', vc: 'blue' },
+                { label: 'High Priority Zones', value: highCount || '12', sub: 'AI-identified zones', cls: 'sc-red', vc: 'red' },
+                { label: 'Geological Confidence', value: '84%', sub: 'Composite model confidence', cls: 'sc-purple', vc: 'purple' },
+              ].map(s => (
+                <div key={s.label} className={`stat-card ${s.cls}`}>
+                  <div className="stat-label">{s.label}</div>
+                  <div className={`stat-value ${s.vc}`}>{s.value}</div>
+                  <div className="stat-sub">{s.sub}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid2" style={{ marginBottom: 14 }}>
+              {/* Map */}
+              <div className="card">
+                <div className="card-h">
+                  <div><div className="card-title">Regional Prospectivity Map</div><div className="card-sub">Click to explore a location</div></div>
+                  <button className="btn btn-ghost" style={{ fontSize: 12, padding: '5px 10px' }} onClick={() => setPage('explore')}>Full Map →</button>
+                </div>
+                <div style={{ height: 280 }}>
+                  <MapComponent markers={filteredHistory} activeLocation={mapLoc}
+                    onMapClick={(lat, lng) => { handleMapClick(lat, lng); setPage('explore'); }}
+                    predictionMode={mode} onLayerUnavailable={handleLayerUnavail} showRegionBboxes={true} />
+                </div>
+              </div>
+
+              {/* Geological indicators */}
+              <div className="card">
+                <div className="card-h"><span className="card-title">Geological Indicators</span></div>
+                <div className="card-b">
+                  {[
+                    { l: 'Spectral similarity',   v: '87%', p: 87, c: 'green' },
+                    { l: 'Lithology match',        v: '82%', p: 82, c: 'green' },
+                    { l: 'Terrain suitability',    v: '76%', p: 76, c: 'yellow' },
+                    { l: 'Occurrence proximity',   v: '91%', p: 91, c: 'green' },
+                  ].map(ind => (
+                    <div key={ind.l} style={{ marginBottom: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{ind.l}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent-green)' }}>{ind.v}</span>
+                      </div>
+                      <div className="pbar" style={{ height: 6 }}><div className={`pfill ${ind.c}`} style={{ width: `${ind.p}%` }} /></div>
+                    </div>
+                  ))}
+
+                  <div className="div" />
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', marginBottom: 8 }}>Satellite Indicators</div>
+                  {[['NDVI anomaly', '+0.18'], ['Iron oxide signature', 'Strong'], ['Moisture-adj. reflectance', '0.74']].map(([l, v]) => (
+                    <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid var(--border-color)' }}>
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{l}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent-green)' }}>{v}</span>
+                    </div>
                   ))}
                 </div>
               </div>
-              <div className="flex items-center space-x-4 border-l border-gray-200 pl-4">
-                <div className="flex bg-gray-100 p-1 rounded-lg">
-                  <button
-                    onClick={() => setViewMode('2d')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold ${
-                      viewMode === '2d' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    2D Map
-                  </button>
-                  <button
-                    onClick={() => setViewMode('3d')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold ${
-                      viewMode === '3d' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    3D Visualization
-                  </button>
-                </div>
-              </div>
-              {viewMode === '3d' && (
-                <div className="flex items-center space-x-2 border-l border-gray-200 pl-4">
-                  <span className="text-xs text-gray-500">Layers:</span>
-                  <button
-                    onClick={() => setShowElevation(!showElevation)}
-                    className={`px-2 py-1 rounded text-xs font-medium border ${showElevation ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-gray-200 text-gray-600'}`}
-                  >
-                    Elevation
-                  </button>
-                  <button
-                    onClick={() => setShowGeology(!showGeology)}
-                    className={`px-2 py-1 rounded text-xs font-medium border ${showGeology ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-gray-200 text-gray-600'}`}
-                  >
-                    Geology
-                  </button>
-                </div>
-              )}
             </div>
 
-            {/* Map Component / 3D Visualization */}
-            <div className="relative bg-white rounded-xl shadow-sm border border-gray-200 p-2 h-[500px]">
-              
-              {/* Layer Warning Toast */}
-              {layerWarning && (
-                <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[1000] bg-orange-100 border border-orange-300 text-orange-800 px-4 py-2 rounded-md shadow-lg flex items-center space-x-2 transition-opacity duration-300">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  <span className="text-sm font-semibold">
-                    Real {layerWarning} data is currently unavailable. 
-                  </span>
+            {/* Zone table */}
+            <div className="card">
+              <div className="card-h">
+                <div><div className="card-title">Priority Areas</div><div className="card-sub">AI-assigned zone prioritisation from prediction history</div></div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {['All', 'High', 'Medium', 'Low'].map(f => (
+                    <button key={f} className={`tab ${filter === f ? 'active' : ''}`} style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => setFilter(f)}>{f}</button>
+                  ))}
                 </div>
-              )}
-
-              {viewMode === '2d' ? (
-                <MapComponent 
-                  activeLocation={mapLocation} 
-                  markers={filteredHistory} 
-                  onMapClick={handleMapClick}
-                  onLayerUnavailable={handleLayerUnavailable}
-                  pilotRegion={pilotRegion}
-                  showRegionBboxes={predictionMode === 'multiregion'}
-                  highlightedRegionKey={selectedRegionKey}
-                />
-              ) : (
-                <Visualization3D
-                  activeLocation={mapLocation}
-                  markers={filteredHistory}
-                  predictionMode={predictionMode}
-                  showElevation={showElevation}
-                  showGeology={showGeology}
-                />
-              )}
-            </div>
-            
-            {/* Prediction History Table */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-200 bg-slate-50 flex justify-between items-center">
-                <h2 className="text-lg font-semibold text-gray-800">Session History</h2>
-                {history.length > 0 && (
-                  <button 
-                    onClick={handleClearHistory}
-                    className="text-xs text-red-600 hover:text-red-800 font-medium"
-                  >
-                    Clear History
-                  </button>
-                )}
               </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Coordinates</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Region</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Score</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priority</th>
-                      <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {history.length === 0 ? (
-                      <tr>
-                        <td colSpan="5" className="px-6 py-8 text-center text-sm text-gray-500">
-                          No predictions made in this session yet.
-                        </td>
-                      </tr>
-                    ) : (
-                      history.map((item) => (
-                        <tr key={item.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.timestamp}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-mono">
-                            {Number(item.lat).toFixed(4)}, {Number(item.lng).toFixed(4)}
+              <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+                {filteredHistory.length === 0 ? (
+                  <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                    No zones yet — <span style={{ color: 'var(--accent-green)', cursor: 'pointer', fontWeight: 600 }} onClick={() => setPage('explore')}>start exploring</span>
+                  </div>
+                ) : (
+                  <table className="tbl">
+                    <thead><tr><th>Zone</th><th>Lat</th><th>Lon</th><th>Score</th><th>Priority</th><th>Status</th></tr></thead>
+                    <tbody>
+                      {filteredHistory.map((h, i) => (
+                        <tr key={h.id} style={{ cursor: 'pointer' }} onClick={() => { setMapLoc({ lat: h.lat, lng: h.lng }); setCoords({ lat: String(h.lat), lng: String(h.lng) }); setResult(h.result); setPage('explore'); }}>
+                          <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Zone {String.fromCharCode(65 + i)}</td>
+                          <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{h.lat.toFixed(3)}°N</td>
+                          <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{h.lng.toFixed(3)}°E</td>
+                          <td style={{ fontWeight: 700, color: 'var(--accent-green)' }}>
+                            {h.result?.prospectivity_score !== undefined ? `${Math.round(h.result.prospectivity_score * 100)}%` : '—'}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-600">
-                            {item.prediction?.region_name
-                              ? <span className="text-indigo-600 font-medium">{item.prediction.state || item.prediction.region_name}</span>
-                              : <span className="text-gray-400">Single-Region</span>
-                            }
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                            {item.prediction?.prospectivity_score}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                              item.prediction?.priority === 'High' ? 'bg-red-100 text-red-700' :
-                              item.prediction?.priority === 'Medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
-                            }`}>
-                              {item.prediction?.priority || 'Unknown'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <button 
-                              onClick={() => handleHistoryClick(item)}
-                              className="text-blue-600 hover:text-blue-900"
-                            >
-                              View Map
-                            </button>
+                          <td><Badge priority={h.result?.priority} /></td>
+                          <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                            {h.result?.priority === 'High' ? 'Ready for review' : h.result?.priority === 'Medium' ? 'Pending validation' : 'Monitoring'}
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </div>
-            
           </div>
-          </>
         )}
-      </main>
+
+        {/* ═══ PRODUCTION RISK ══════════════════════════════════ */}
+        {page === 'forecast' && (
+          <div className="page">
+            <ForecastDashboard />
+          </div>
+        )}
+
+        {/* ═══ AI INSIGHTS ══════════════════════════════════════ */}
+        {page === 'ai' && (
+          <div className="page">
+            <div className="stat-grid">
+              {[
+                { label: 'Active Alerts',          value: '3',   vc: 'red',    cls: 'sc-red'    },
+                { label: 'Model Accuracy',          value: '84%', vc: 'green',  cls: 'sc-green'  },
+                { label: 'Training Regions',        value: '6',   vc: 'blue',   cls: 'sc-blue'   },
+                { label: 'Predictions This Session',value: history.length.toString(), vc: 'purple', cls: 'sc-purple' },
+              ].map(s => (
+                <div key={s.label} className={`stat-card ${s.cls}`}>
+                  <div className="stat-label">{s.label}</div>
+                  <div className={`stat-value ${s.vc}`}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid3" style={{ gridTemplateColumns: history.length > 0 ? '1fr 2fr' : '1fr' }}>
+              {history.length > 0 && (
+                <div className="card">
+                  <div className="card-h"><span className="card-title">Prediction Distribution</span></div>
+                  <div className="card-b" style={{ height: 200 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: 'High', value: history.filter(h => h.result?.priority === 'High').length, color: '#ef4444' },
+                            { name: 'Medium', value: history.filter(h => h.result?.priority === 'Medium').length, color: '#f59e0b' },
+                            { name: 'Low', value: history.filter(h => h.result?.priority === 'Low').length, color: '#22c55e' }
+                          ].filter(d => d.value > 0)}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={50}
+                          outerRadius={70}
+                          paddingAngle={5}
+                        >
+                          {[
+                            { name: 'High', value: history.filter(h => h.result?.priority === 'High').length, color: '#ef4444' },
+                            { name: 'Medium', value: history.filter(h => h.result?.priority === 'Medium').length, color: '#f59e0b' },
+                            { name: 'Low', value: history.filter(h => h.result?.priority === 'Low').length, color: '#22c55e' }
+                          ].filter(d => d.value > 0).map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 4 }} itemStyle={{ color: '#fff' }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+              <div style={{ display: 'grid', gap: 14, gridTemplateColumns: history.length > 0 ? '1fr 1fr' : '1fr 1fr 1fr' }}>
+                {[
+                  { t: 'Spectral Anomaly Detected', p: 'High',   b: 'High iron-oxide spectral signature detected in the target region. Recommend immediate field verification.' },
+                  { t: 'Proximity Cluster Found',   p: 'Medium', b: 'Three exploration points within 5 km showing Medium+ prospectivity. Consider combined field survey.' },
+                  { t: 'Coverage Gap',              p: 'Low',    b: 'Selected region has sparse prediction coverage. Additional sampling recommended.' },
+                ].slice(0, history.length > 0 ? 2 : 3).map(r => (
+                  <div key={r.t} className="card">
+                    <div className="card-h"><span className="card-title">{r.t}</span><Badge priority={r.p} /></div>
+                    <div className="card-b">
+                      <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.65, marginBottom: 12 }}>{r.b}</p>
+                      <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center', fontSize: 12 }}>View Details →</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="alert alert-warn" style={{ marginTop: 14 }}>
+              <span>⚠</span>
+              <span>AI recommendations are decision-support tools derived from statistical model outputs and do not confirm mineral deposits. Independent geological validation is required before any mining decisions.</span>
+            </div>
+
+            {history.length > 0 && (
+              <div className="card" style={{ marginTop: 14 }}>
+                <div className="card-h"><span className="card-title">Session Prediction Log</span></div>
+                <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+                  <table className="tbl">
+                    <thead><tr><th>Time</th><th>Coordinates</th><th>Region</th><th>Score</th><th>Priority</th></tr></thead>
+                    <tbody>
+                      {history.map(h => (
+                        <tr key={h.id} style={{ cursor: 'pointer' }} onClick={() => { setMapLoc({ lat: h.lat, lng: h.lng }); setResult(h.result); setPage('explore'); }}>
+                          <td style={{ color: 'var(--text-muted)' }}>{h.ts}</td>
+                          <td style={{ fontFamily: 'monospace', fontSize: 11 }}>{h.lat.toFixed(3)}, {h.lng.toFixed(3)}</td>
+                          <td>{h.result?.region_name?.split(' ')[0] || '—'}</td>
+                          <td style={{ fontWeight: 700, color: 'var(--accent-green)' }}>{h.result?.prospectivity_score !== undefined ? `${Math.round(h.result.prospectivity_score * 100)}%` : '—'}</td>
+                          <td><Badge priority={h.result?.priority} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }

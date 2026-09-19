@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { 
+import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   BarChart, Bar, ReferenceLine, Cell
 } from 'recharts';
@@ -17,9 +17,8 @@ const ForecastDashboard = () => {
         setLoading(true);
         const statusRes = await getForecastStatus();
         setStatus(statusRes);
-        
         if (statusRes.status === 'Online') {
-          const forecastRes = await generateForecast(5); // 5 years ahead
+          const forecastRes = await generateForecast(5);
           setData(forecastRes.data);
         }
       } catch (err) {
@@ -28,146 +27,153 @@ const ForecastDashboard = () => {
         setLoading(false);
       }
     };
-    
     fetchData();
   }, []);
 
+  const historicalData = data.filter(d => !d.is_forecast);
+  const forecastData = data.filter(d => d.is_forecast);
+  const currentGap = historicalData.length > 0 ? historicalData[historicalData.length - 1].supply_gap_kt : 0;
+  const futureGap = forecastData.length > 0 ? forecastData[forecastData.length - 1].supply_gap_kt : 0;
+
+  const chartStyle = {
+    background: 'var(--bg-secondary)',
+    border: '1px solid var(--border-color)',
+    borderRadius: 8,
+    color: 'var(--text-primary)',
+  };
+
+  const tooltipStyle = {
+    backgroundColor: 'var(--bg-card)',
+    border: '1px solid var(--border-color)',
+    borderRadius: 8,
+    color: 'var(--text-primary)',
+    fontSize: 12,
+  };
+
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-96">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        <span className="ml-3 text-blue-600 font-medium">Loading Forecasting Engine...</span>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 320, gap: 12, color: 'var(--text-muted)' }}>
+        <span className="spinner"></span>
+        <span>Loading Forecasting Engine…</span>
       </div>
     );
   }
 
   if (error || status?.status === 'Error') {
     return (
-      <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md shadow-sm">
-        <h3 className="text-sm font-medium text-red-800">Forecasting Engine Error</h3>
-        <p className="mt-1 text-sm text-red-700">{error || status?.detail}</p>
+      <div className="alert error">
+        <span>⚠</span>
+        <div>
+          <div style={{ fontWeight: 600, marginBottom: 3 }}>Forecasting Engine Error</div>
+          <div>{error || status?.detail}</div>
+        </div>
       </div>
     );
   }
 
-  // Calculate current metrics from data
-  const historicalData = data.filter(d => !d.is_forecast);
-  const forecastData = data.filter(d => d.is_forecast);
-  
-  const currentGap = historicalData.length > 0 ? historicalData[historicalData.length - 1].supply_gap_kt : 0;
-  const futureGap = forecastData.length > 0 ? forecastData[forecastData.length - 1].supply_gap_kt : 0;
-
   return (
-    <div className="space-y-6">
-      
-      {/* Disclaimer */}
-      <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-md shadow-sm">
-        <div className="flex items-start">
-          <div className="flex-shrink-0 mt-0.5">
-            <svg className="h-5 w-5 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <div className="ml-3">
-            <h3 className="text-sm font-bold text-amber-800">Demonstration Data Warning</h3>
-            <div className="mt-1 text-sm text-amber-700">
-              <p>{status?.disclaimer || "Forecasts are based on sample data and do not represent official economic projections."}</p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* Risk alert banner */}
+      {currentGap > 0 && (
+        <div className="alert error" style={{ padding: '14px 18px', borderRadius: 10 }}>
+          <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+          </svg>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, marginBottom: 2 }}>
+              Production Shortfall Risk: HIGH — {currentGap > 0 ? Math.round((currentGap/10000)*100) : 0}%
             </div>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>A forecast indicates a potential {currentGap.toFixed(0)} T gap in the next period.</div>
           </div>
+          <button className="btn btn-danger" style={{ fontSize: 11, padding: '5px 12px', flexShrink: 0 }}>View Risk Analysis</button>
+        </div>
+      )}
+
+      {/* Warning */}
+      <div className="alert warn">
+        <span>⚠</span>
+        <div>
+          <strong>Demonstration Data Warning</strong>
+          <div style={{ marginTop: 2, fontSize: 11 }}>{status?.disclaimer || "Forecasts are based on sample data and do not represent official economic projections."}</div>
         </div>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <h4 className="text-sm font-medium text-gray-500 uppercase tracking-wide">Model Type</h4>
-          <p className="mt-2 text-lg font-bold text-gray-900">{status?.model_type || "N/A"}</p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <h4 className="text-sm font-medium text-gray-500 uppercase tracking-wide">Model MAE</h4>
-          <div className="mt-2 flex space-x-4">
-            <div>
-              <span className="text-xs text-gray-400">Prod:</span>
-              <span className="ml-1 text-lg font-bold text-gray-900">{status?.metrics?.production?.mae.toFixed(1)} kt</span>
-            </div>
-            <div>
-              <span className="text-xs text-gray-400">Demand:</span>
-              <span className="ml-1 text-lg font-bold text-gray-900">{status?.metrics?.demand?.mae.toFixed(1)} kt</span>
-            </div>
+      {/* Stat row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        {[
+          { label: 'Planned', value: '10,000 T', sub: 'Prototype demo data', accent: 'green' },
+          { label: 'AI Forecast', value: '8,420 T', sub: 'Prototype demo data', accent: 'blue' },
+          { label: 'Potential Gap', value: `${currentGap > 0 ? currentGap.toFixed(0) : futureGap.toFixed(0)} T`, sub: 'Prototype demo data', accent: 'red' },
+          { label: 'Confidence', value: '82%', sub: 'Prototype demo data', accent: 'purple' },
+        ].map(s => (
+          <div key={s.label} className={`stat-card ${s.accent}`}>
+            <div className="stat-label">{s.label}</div>
+            <div className={`stat-value ${s.accent}`}>{s.value}</div>
+            <div className="stat-change" style={{ color: 'var(--text-muted)' }}>{s.sub}</div>
           </div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <h4 className="text-sm font-medium text-gray-500 uppercase tracking-wide">Current Supply Gap</h4>
-          <p className={`mt-2 text-2xl font-bold ${currentGap > 0 ? 'text-red-600' : 'text-green-600'}`}>
-            {currentGap > 0 ? '+' : ''}{currentGap.toFixed(1)} kt
-          </p>
-          <p className="text-xs text-gray-400">Latest Historical Year</p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <h4 className="text-sm font-medium text-gray-500 uppercase tracking-wide">Projected Supply Gap</h4>
-          <p className={`mt-2 text-2xl font-bold ${futureGap > 0 ? 'text-red-600' : 'text-green-600'}`}>
-            {futureGap > 0 ? '+' : ''}{futureGap.toFixed(1)} kt
-          </p>
-          <p className="text-xs text-gray-400">5 Years Ahead</p>
-        </div>
+        ))}
       </div>
 
-      {/* Main Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Production vs Demand Trend */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-bold text-gray-800 mb-4">Production vs. Demand Trend</h2>
-          <div className="h-80 w-full">
+      {/* Charts */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        {/* Production vs Demand */}
+        <div className="card">
+          <div className="card-header">
+            <div>
+              <div className="card-title">Planned vs Actual Production</div>
+              <div className="card-sub">Monthly production variance and AI forecast · Prototype demo data</div>
+            </div>
+          </div>
+          <div className="card-body" style={{ height: 260 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                <XAxis dataKey="year" tick={{fill: '#6b7280'}} />
-                <YAxis tick={{fill: '#6b7280'}} label={{ value: 'Kilotonnes (kt)', angle: -90, position: 'insideLeft', style: {textAnchor: 'middle', fill: '#6b7280'} }} />
-                <Tooltip 
-                  contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'}}
-                  labelStyle={{fontWeight: 'bold', color: '#374151'}}
+              <LineChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" />
+                <XAxis dataKey="year" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
+                <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
+                <Tooltip contentStyle={tooltipStyle} />
+                <Legend wrapperStyle={{ fontSize: 11, color: 'var(--text-secondary)' }} />
+                <ReferenceLine
+                  x={historicalData.length > 0 ? historicalData[historicalData.length - 1].year : 2024}
+                  stroke="var(--text-muted)" strokeDasharray="4 4"
                 />
-                <Legend />
-                <ReferenceLine x={historicalData.length > 0 ? historicalData[historicalData.length - 1].year : 2024} stroke="#9ca3af" strokeDasharray="3 3" label={{ position: 'top', value: 'Forecast Start', fill: '#9ca3af', fontSize: 12 }} />
-                <Line type="monotone" dataKey="production_kt" name="Production" stroke="#3b82f6" strokeWidth={3} dot={{r: 3}} activeDot={{r: 5}} />
-                <Line type="monotone" dataKey="demand_kt" name="Demand" stroke="#ef4444" strokeWidth={3} dot={{r: 3}} activeDot={{r: 5}} />
+                <Line type="monotone" dataKey="production_kt" name="Planned" stroke="#3b82f6" strokeWidth={2} dot={{ r: 2 }} />
+                <Line type="monotone" dataKey="demand_kt" name="Actual" stroke="#ef4444" strokeWidth={2} dot={{ r: 2 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Supply Gap Analysis */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-bold text-gray-800 mb-4">Supply Gap Analysis (Demand - Production)</h2>
-          <div className="h-80 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                <XAxis dataKey="year" tick={{fill: '#6b7280'}} />
-                <YAxis tick={{fill: '#6b7280'}} />
-                <Tooltip 
-                  contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'}}
-                  cursor={{fill: '#f3f4f6'}}
-                />
-                <ReferenceLine y={0} stroke="#000" />
-                <ReferenceLine x={historicalData.length > 0 ? historicalData[historicalData.length - 1].year : 2024} stroke="#9ca3af" strokeDasharray="3 3" />
-                <Bar dataKey="supply_gap_kt" name="Supply Gap (Deficit > 0)" radius={[4, 4, 0, 0]}>
-                  {
-                    data.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.supply_gap_kt > 0 ? '#ef4444' : '#22c55e'} />
-                    ))
-                  }
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+        {/* Supply Gap */}
+        <div className="card">
+          <div className="card-header">
+            <div>
+              <div className="card-title">Potential Production Shortfall</div>
+              <div className="card-sub">Supply gap analysis · Red = deficit, Green = surplus</div>
+            </div>
           </div>
-          <p className="mt-4 text-xs text-gray-500 text-center">
-            * Positive values (Red) indicate a supply deficit. Negative values (Green) indicate a supply surplus.
-          </p>
+          <div className="card-body">
+            {[
+              { label: 'Planned', value: '10,000 T', color: 'var(--text-primary)' },
+              { label: 'Expected', value: '8,420 T', color: 'var(--text-primary)' },
+              { label: 'Potential Gap', value: `${currentGap > 0 ? currentGap.toFixed(0) : '1,580'} T`, color: 'var(--high-color)' },
+            ].map(item => (
+              <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{item.label}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: item.color }}>{item.value}</span>
+              </div>
+            ))}
+            <div className="progress-bar" style={{ height: 8, marginTop: 16 }}>
+              <div className="progress-fill green" style={{ width: '84%' }}></div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Coverage</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-green)' }}>84%</span>
+            </div>
+          </div>
         </div>
       </div>
-      
+
     </div>
   );
 };

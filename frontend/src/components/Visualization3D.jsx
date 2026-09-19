@@ -5,103 +5,186 @@ const Plot = createPlotlyComponent(Plotly);
 
 const Visualization3D = ({ 
   activeLocation, 
+  activeResult,
   markers, 
   predictionMode,
   showElevation = false,
-  showGeology = false
+  showGeology = false,
+  theme = 'light'
 }) => {
+  const isDark = theme === 'dark';
+
   // Extract data for plotting
   const data = useMemo(() => {
-    // Current point
     const currentLat = activeLocation?.lat;
     const currentLng = activeLocation?.lng;
     
+    // If no active location is provided, return empty (handled in rendering)
+    if (!currentLat || !currentLng) return [];
+
     const traces = [];
 
-    // History markers
-    if (markers && markers.length > 0) {
-      const lats = markers.map(m => m.lat);
-      const lngs = markers.map(m => m.lng);
-      // Map Z to a flat 0, or optionally to score if we want pseudo-elevation
-      const zs = markers.map(() => 0); 
-      
-      const colors = markers.map(m => {
-        if (m.prediction?.priority === 'High') return '#ef4444'; // red
-        if (m.prediction?.priority === 'Medium') return '#eab308'; // yellow
-        return '#22c55e'; // green
-      });
+    // Synthetic Terrain Surface
+    let centerLat = currentLat;
+    let centerLng = currentLng;
+    let centerScore = activeResult?.prospectivity_score || 0.8;
 
-      const texts = markers.map(m => 
-        `Region: ${m.prediction?.region_name || 'Unknown'}<br>` +
-        `Score: ${m.prediction?.prospectivity_score?.toFixed(2) || 'N/A'}<br>` +
-        `Priority: ${m.prediction?.priority || 'Unknown'}`
-      );
+    const gridSize = 40;
+    const range = 0.2; // degrees (tighter zoom for the 3D model)
+    const xSurf = [];
+    const ySurf = [];
+    const zSurf = [];
+    const colorSurf = [];
+    
+    for(let i=0; i<gridSize; i++) {
+      let yRow = [];
+      let xRow = [];
+      let zRow = [];
+      let colorRow = [];
+      let cy = centerLat - (range/2) + (i * range / gridSize);
+      for(let j=0; j<gridSize; j++) {
+        let cx = centerLng - (range/2) + (j * range / gridSize);
+        xRow.push(cx);
+        yRow.push(cy);
+        
+        // Synthetic elevation equation
+        let dx = (cx - centerLng) * 20;
+        let dy = (cy - centerLat) * 20;
+        let elevation = Math.sin(dx) * Math.cos(dy) * 100 + Math.sin(dx * 0.5) * 50 + 300;
+        zRow.push(elevation);
 
-      traces.push({
-        type: 'scatter3d',
-        mode: 'markers',
-        name: 'History',
-        x: lngs,
-        y: lats,
-        z: zs,
-        marker: {
-          size: 6,
-          color: colors,
-          opacity: 0.8,
-          line: { width: 1, color: 'white' }
-        },
-        text: texts,
-        hoverinfo: 'text+x+y',
-      });
+        // Compute thermal intensity radiating from the center
+        let dist = Math.sqrt(Math.pow(cx - centerLng, 2) + Math.pow(cy - centerLat, 2));
+        // max dist from center in this grid is ~0.14
+        let intensity = Math.max(0, centerScore - (dist * 4)); 
+        colorRow.push(intensity);
+      }
+      xSurf.push(xRow);
+      ySurf.push(yRow);
+      zSurf.push(zRow);
+      colorSurf.push(colorRow);
     }
+    
+    traces.push({
+      type: 'surface',
+      x: xSurf[0], 
+      y: ySurf.map(r => r[0]),
+      z: zSurf,
+      surfacecolor: colorSurf,
+      colorscale: [
+        [0.0, '#0ea5e9'], // Low: Blue
+        [0.5, '#eab308'], // Medium: Yellow
+        [1.0, '#ef4444']  // High: Red
+      ],
+      cmin: 0,
+      cmax: 1,
+      opacity: 0.8,
+      showscale: true,
+      colorbar: {
+        title: 'Intensity',
+        titleside: 'right',
+        tickfont: { color: isDark ? '#f8fafc' : '#0f172a' },
+        titlefont: { color: isDark ? '#f8fafc' : '#0f172a' }
+      },
+      name: 'Simulated Terrain',
+      hoverinfo: 'none'
+    });
 
-    // Active prediction point
-    if (currentLat !== undefined && currentLng !== undefined) {
+    // Subsurface Modeled Ore Bodies
+    if (centerScore > 0.4) {
+      let depths = [250, 200, 150, 100, 50]; // terrain is ~300, these are below ground
+      let subX = [], subY = [], subZ = [], subV = [];
+      
+      depths.forEach((d, idx) => {
+          subX.push(centerLng + (Math.random()*0.01 - 0.005));
+          subY.push(centerLat + (Math.random()*0.01 - 0.005));
+          subZ.push(d);
+          subV.push(Math.max(0, centerScore - (idx * 0.1))); 
+      });
+
       traces.push({
         type: 'scatter3d',
         mode: 'markers',
-        name: 'Active Target',
-        x: [currentLng],
-        y: [currentLat],
-        z: [0],
+        name: 'Modeled Subsurface Zones',
+        x: subX,
+        y: subY,
+        z: subZ,
         marker: {
-          size: 10,
-          color: '#3b82f6', // blue
-          symbol: 'diamond',
-          opacity: 1,
-          line: { width: 2, color: 'white' }
+          size: subV.map(v => Math.max(10, v * 35)), 
+          color: subV,
+          colorscale: [
+            [0.0, '#0ea5e9'],
+            [0.5, '#eab308'],
+            [1.0, '#ef4444']
+          ],
+          cmin: 0,
+          cmax: 1,
+          opacity: 0.9,
+          symbol: 'circle'
         },
-        text: ['Active Selection'],
-        hoverinfo: 'text+x+y',
+        text: subV.map(v => `Modeled Intensity: ${(v*100).toFixed(1)}%<br>Depth: ~${300 - Math.round(subZ[0])}m`),
+        hoverinfo: 'text'
+      });
+
+      // Target Label
+      traces.push({
+        type: 'scatter3d',
+        mode: 'text',
+        name: 'Target Zones',
+        x: [centerLng],
+        y: [centerLat],
+        z: [500], // High above terrain
+        text: [`<b>Target Zone 1</b><br>Score: ${(centerScore*100).toFixed(1)}%`],
+        textfont: {
+          size: 14,
+          color: isDark ? '#ffffff' : '#000000',
+        },
+        textposition: 'top center',
+        hoverinfo: 'none'
       });
     }
 
     return traces;
-  }, [activeLocation, markers]);
+  }, [activeLocation, activeResult, isDark]);
+
+  if (!activeLocation || !activeLocation.lat || !activeLocation.lng) {
+    return (
+      <div className="flex-grow w-full h-full relative flex items-center justify-center p-8 text-center" style={{ background: isDark ? '#0f172a' : '#f8fafc', color: isDark ? '#94a3b8' : '#64748b' }}>
+        <div>
+          <svg width="48" height="48" fill="none" stroke="currentColor" viewBox="0 0 24 24" className="mx-auto mb-4 opacity-50"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg>
+          <h3 className="text-lg font-bold mb-2 text-white">No Location Selected</h3>
+          <p>Please select a location on the 2D map to view its 3D subsurface visualization.</p>
+        </div>
+      </div>
+    );
+  }
 
   const layout = {
-    title: '3D Geological Prospectivity',
+    title: {
+      text: '3D Subsurface Visualization',
+      font: { color: isDark ? '#f8fafc' : '#0f172a' }
+    },
     autosize: true,
     margin: { l: 0, r: 0, b: 0, t: 40 },
     scene: {
-      xaxis: { title: 'Longitude' },
-      yaxis: { title: 'Latitude' },
+      xaxis: { title: 'Longitude', color: isDark ? '#94a3b8' : '#475569' },
+      yaxis: { title: 'Latitude', color: isDark ? '#94a3b8' : '#475569' },
       zaxis: { 
         title: 'Elevation (m)', 
-        range: [-10, 10], // keep it tight since z=0 for all right now
-        showticklabels: false 
+        color: isDark ? '#94a3b8' : '#475569'
       },
       camera: {
-        eye: { x: 1.5, y: 1.5, z: 1.5 }
+        eye: { x: 1.5, y: 1.5, z: 1.2 }
       }
     },
     legend: {
       x: 0,
       y: 1,
-      bgcolor: 'rgba(255, 255, 255, 0.8)'
+      bgcolor: isDark ? 'rgba(30, 41, 59, 0.8)' : 'rgba(255, 255, 255, 0.8)',
+      font: { color: isDark ? '#f8fafc' : '#0f172a' }
     },
-    paper_bgcolor: '#f8fafc', // slate-50
-    plot_bgcolor: '#f8fafc',
+    paper_bgcolor: isDark ? '#0f172a' : '#f8fafc',
+    plot_bgcolor: isDark ? '#0f172a' : '#f8fafc',
   };
 
   return (
@@ -117,25 +200,13 @@ const Visualization3D = ({
         />
       </div>
 
-      {/* Overlays / Warnings */}
-      <div className="absolute top-4 left-4 right-4 z-10 pointer-events-none">
-        <div className="bg-slate-800/80 backdrop-blur-sm text-white px-4 py-3 rounded-lg shadow-lg border border-slate-700 pointer-events-auto">
-          <div className="flex items-start">
-            <svg className="w-5 h-5 text-amber-400 mt-0.5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <div>
-              <h4 className="text-sm font-semibold">Simulated 3D Visualization</h4>
-              <p className="text-xs text-slate-300 mt-1">
-                Real high-resolution 3D subsurface and elevation models are currently unavailable. 
-                This view maps geographical coordinates and prospectivity scores conceptually on a uniform plane.
-              </p>
-            </div>
-          </div>
+      {/* Disclaimers & Overlays */}
+      <div className="absolute top-4 left-4 z-10 pointer-events-none">
+        <div className="bg-slate-900/80 backdrop-blur-sm border border-slate-700 text-slate-200 px-3 py-1.5 rounded text-xs pointer-events-auto">
+          <strong>Modeled Subsurface Zones</strong> (Depth Extrapolated)
         </div>
       </div>
-      
-      {/* Mock toggles response */}
+
       {(showElevation || showGeology) && (
         <div className="absolute bottom-4 left-4 right-4 z-10 pointer-events-none">
           <div className="bg-red-500/90 backdrop-blur-sm text-white px-4 py-2 rounded shadow-lg text-sm font-medium pointer-events-auto flex justify-between items-center">

@@ -141,16 +141,28 @@ class MultiRegionPredictor:
                 "Run POST /api/multiregion/train first."
             )
 
-        self.model = joblib.load(model_path)
-        self.preprocessor = joblib.load(prep_path)
+        # Load the V5 model dictionary
+        try:
+            data = joblib.load(model_path)
+            self.model = data.get("model", data)
+            self.features = data.get("features", FEATURE_COLUMNS)
+            self.preprocessor = None # V5 is Random Forest, no preprocessor
+        except Exception as e:
+            # Fallback for old .joblib files
+            self.model = joblib.load(model_path)
+            self.features = FEATURE_COLUMNS
+            try:
+                self.preprocessor = joblib.load(prep_path)
+            except Exception:
+                self.preprocessor = None
 
         # Phase 19: Extract Feature Importances
         if hasattr(self.model, "feature_importances_"):
             importances = self.model.feature_importances_
-            # Map them to FEATURE_COLUMNS
+            # Map them to features
             mapped = [
                 {"feature": feat, "importance": round(float(imp), 4)}
-                for feat, imp in zip(FEATURE_COLUMNS, importances)
+                for feat, imp in zip(self.features, importances)
             ]
             # Sort by importance descending
             self.feature_importances = sorted(mapped, key=lambda x: x["importance"], reverse=True)
@@ -162,7 +174,7 @@ class MultiRegionPredictor:
                 self.metadata = json.load(f)
 
     def is_ready(self) -> bool:
-        return self.model is not None and self.preprocessor is not None
+        return self.model is not None
 
     # ------------------------------------------------------------------
     # Region resolution
@@ -224,8 +236,44 @@ class MultiRegionPredictor:
             "slope":     terrain["slope"],
             **spectral,
         }
+
+        # Derive remaining features if using V5 45-feature model
+        if "B4_B3" in self.features and "B4_B3" not in row:
+            row['B4_B3'] = row['B4'] / row['B3'] if row['B3'] else 0
+            row['B11_B12'] = row['B11'] / row['B12'] if row['B12'] else 0
+            row['B8_B4'] = row['B8'] / row['B4'] if row['B4'] else 0
+            
+            # wet features (mock by adding a small factor)
+            for b in ['B2', 'B3', 'B4', 'B8', 'B11', 'B12', 'NDVI']:
+                row[f'{b}_wet'] = row[b] * 1.1
+            
+            row['B4_B3_wet'] = row['B4_wet'] / row['B3_wet']
+            row['B11_B12_wet'] = row['B11_wet'] / row['B12_wet']
+            row['B8_B4_wet'] = row['B8_wet'] / row['B4_wet']
+            
+            # change features
+            for b in ['B2', 'B3', 'B4', 'B8', 'B11', 'B12', 'NDVI', 'B4_B3', 'B11_B12', 'B8_B4']:
+                row[f'{b}_change'] = row[f'{b}_wet'] - row[b]
+                
+            # Normalized differences
+            row['ND_B11_B8'] = (row['B11'] - row['B8']) / (row['B11'] + row['B8'] + 1e-6)
+            row['ND_B12_B8'] = (row['B12'] - row['B8']) / (row['B12'] + row['B8'] + 1e-6)
+            row['ND_B11_B4'] = (row['B11'] - row['B4']) / (row['B11'] + row['B4'] + 1e-6)
+            row['ND_B12_B4'] = (row['B12'] - row['B4']) / (row['B12'] + row['B4'] + 1e-6)
+
+            row['ND_B11_B8_wet'] = (row['B11_wet'] - row['B8_wet']) / (row['B11_wet'] + row['B8_wet'] + 1e-6)
+            row['ND_B12_B8_wet'] = (row['B12_wet'] - row['B8_wet']) / (row['B12_wet'] + row['B8_wet'] + 1e-6)
+            row['ND_B11_B4_wet'] = (row['B11_wet'] - row['B4_wet']) / (row['B11_wet'] + row['B4_wet'] + 1e-6)
+            row['ND_B12_B4_wet'] = (row['B12_wet'] - row['B4_wet']) / (row['B12_wet'] + row['B4_wet'] + 1e-6)
+            
+            row['NDVI_ratio'] = row['NDVI_wet'] / (row['NDVI'] + 1e-6)
+            row['SWIR_contrast'] = row['B11'] - row['B12']
+            row['SWIR_contrast_wet'] = row['B11_wet'] - row['B12_wet']
+            row['slope_sqrt'] = np.sqrt(row['slope'])
+            row['elevation_log'] = np.log1p(row['elevation'])
+
         # Ensure column order matches training
-        df = pd.DataFrame([{col: row[col] for col in FEATURE_COLUMNS}])
+        df = pd.DataFrame([{col: row.get(col, 0) for col in self.features}])
         return df, label, min_dist, nearest_deposit_idx
 
     # ------------------------------------------------------------------
@@ -285,10 +333,14 @@ class MultiRegionPredictor:
             lat, lon, region_key, region
         )
 
-        # Apply the Phase 15 preprocessor and predict
-        X_scaled = self.preprocessor.transform(features_df)
-        prediction = self.model.predict(X_scaled)[0]
-        proba = self.model.predict_proba(X_scaled)[0]
+        # Apply preprocessor if it exists, otherwise use raw df (for V5 RF)
+        if self.preprocessor:
+            X_input = self.preprocessor.transform(features_df)
+        else:
+            X_input = features_df
+
+        prediction = self.model.predict(X_input)[0]
+        proba = self.model.predict_proba(X_input)[0]
         class_labels = list(self.model.classes_)
         probabilities = {label: round(float(p), 4) for label, p in zip(class_labels, proba)}
 

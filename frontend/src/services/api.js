@@ -128,4 +128,21 @@ export const getMultiRegionRegions = async () => {
   }
 };
 
+export const predictDetailedAnalysis = async (data) => {
+  try {
+    const response = await api.post('/analysis/detailed', data);
+    return response.data;
+  } catch (error) {
+    console.error("Detailed analysis failed:", error);
+    if (error.response?.data?.detail) {
+      const detail = error.response.data.detail;
+      if (Array.isArray(detail)) {
+        throw new Error(detail.map(err => `${err.loc.join('.')}: ${err.msg}`).join(' | '));
+      }
+      throw new Error(detail);
+    }
+    throw new Error(error.message || "Failed to connect to the detailed analysis service.");
+  }
+};
+
 export default api;

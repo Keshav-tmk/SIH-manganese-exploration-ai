@@ -51,6 +51,9 @@ class ManganEXPredictor:
         if self.model is None or self.preprocessor is None:
             raise RuntimeError("Model or preprocessor is not loaded.")
 
+        distance_km = None
+        is_fallback_features = False
+
         # Look up nearest features if latitude and longitude are provided
         if 'latitude' in input_data and 'longitude' in input_data and self.features_df is not None:
             import numpy as np
@@ -59,8 +62,12 @@ class ManganEXPredictor:
             
             distances = self.haversine(lat, lon, self.features_df['latitude'].values, self.features_df['longitude'].values)
             closest_idx = np.argmin(distances)
+            distance_km = float(distances[closest_idx])
             closest_row = self.features_df.iloc[closest_idx].to_dict()
             
+            if distance_km > 0.5:
+                is_fallback_features = True
+                
             # Use closest features
             df_input = pd.DataFrame([closest_row])
         else:
@@ -74,8 +81,6 @@ class ManganEXPredictor:
         
         # Apply the preprocessor (scaling/encoding)
         try:
-            print("EXPECTED FEATURES:", getattr(self.preprocessor, "feature_names_in_", "unknown"))
-            print("INPUT COLUMNS:", df_input.columns.tolist())
             X_processed = self.preprocessor.transform(df_input)
         except Exception as e:
             raise ValueError(f"Error during preprocessing: {str(e)}")
@@ -85,7 +90,9 @@ class ManganEXPredictor:
         
         result = {
             "prediction": prediction,
-            "status": "success"
+            "status": "success",
+            "distance_to_nearest_feature_km": distance_km,
+            "is_fallback_features": is_fallback_features
         }
         
         # Add probabilities if the model supports it

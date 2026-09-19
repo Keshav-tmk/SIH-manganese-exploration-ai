@@ -63,7 +63,6 @@ describe('App Component', () => {
       expect(screen.getByText('Model: Online')).toBeInTheDocument();
       expect(screen.getByText('Geo Engine: Online')).toBeInTheDocument();
       expect(screen.getByText('Backend: Online')).toBeInTheDocument();
-      expect(screen.getByText(/Target: Test Region/i)).toBeInTheDocument();
     });
   });
 
