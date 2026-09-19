@@ -29,9 +29,12 @@ except Exception as e:
 app = FastAPI(title="ManganEX API", description="AI-Powered Manganese Exploration & Supply Intelligence API")
 
 # Configure CORS for React frontend
+allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "*")
+allowed_origins = [origin.strip() for origin in allowed_origins_str.split(",")] if allowed_origins_str != "*" else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # For dev, allow all. In production, configure properly.
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -40,10 +43,6 @@ app.add_middleware(
 class PredictionRequest(BaseModel):
     latitude: float = Field(..., ge=-90, le=90, description="Latitude must be between -90 and 90")
     longitude: float = Field(..., ge=-180, le=180, description="Longitude must be between -180 and 180")
-    elevation: Optional[float] = None
-    slope: Optional[float] = None
-    vegetation_index: Optional[float] = None
-    geological_feature: Optional[str] = None # Added for model
 
 @app.get("/api/health")
 def health_check():
@@ -57,8 +56,8 @@ def model_status():
     return {
         "status": MODEL_STATUS,
         "error": MODEL_ERROR,
-        "is_sample_data": True,
-        "disclaimer": "This is a demonstrative ML model trained on synthetic sample data. Not for scientific use."
+        "is_sample_data": False,
+        "disclaimer": "Model trained using Sentinel-2 spectral features and real confirmed manganese deposit proximity labels."
     }
 
 @app.post("/api/predict")
@@ -71,12 +70,9 @@ def predict_prospectivity(request: PredictionRequest):
     if predictor is None:
         raise HTTPException(status_code=503, detail=f"Model service is unavailable: {MODEL_ERROR}")
     
-    # Use defaults if optional fields are missing (derived from sample dataset medians)
     input_data = {
-        'elevation': request.elevation if request.elevation is not None else 450.0,
-        'slope': request.slope if request.slope is not None else 15.0,
-        'vegetation_index': request.vegetation_index if request.vegetation_index is not None else 0.5,
-        'geological_feature': request.geological_feature if request.geological_feature is not None else 'Unknown'
+        'latitude': request.latitude,
+        'longitude': request.longitude
     }
     
     try:
@@ -94,8 +90,8 @@ def predict_prospectivity(request: PredictionRequest):
             "prospectivity_score": round(score, 2),
             "priority": result.get('prediction', 'Unknown'),
             "probabilities": probabilities,
-            "explanation": "Prediction based on trained ML model using synthentic features.",
-            "demo_mode": True
+            "explanation": "Prediction based on real Sentinel-2 spectral features linked to geographic coordinates.",
+            "demo_mode": False
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Prediction failed: {str(e)}")
@@ -248,3 +244,231 @@ def generate_forecast(request: ForecastRequest):
         from fastapi import HTTPException
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ---------------------------------------------------------------------------
+# Phase 15: Multi-Region Model Training and Validation Endpoints
+# ---------------------------------------------------------------------------
+
+try:
+    from app.ml.multi_region_trainer import (
+        MultiRegionTrainer, MANGANESE_REGIONS, run_full_multi_region_pipeline
+    )
+    MULTI_REGION_AVAILABLE = True
+except ImportError:
+    try:
+        from ml.multi_region_trainer import (
+            MultiRegionTrainer, MANGANESE_REGIONS, run_full_multi_region_pipeline
+        )
+        MULTI_REGION_AVAILABLE = True
+    except ImportError:
+        MULTI_REGION_AVAILABLE = False
+
+
+def _get_mr_trainer():
+    """Helper that builds a MultiRegionTrainer pointed at the project models dir."""
+    return MultiRegionTrainer(model_save_dir=model_dir)
+
+
+@app.get("/api/multiregion/status")
+def multiregion_status():
+    """
+    Returns the status of the multi-region training module.
+    Lists all defined Indian manganese belt regions, their sample sizes,
+    and whether a trained multi-region model exists on disk.
+    """
+    if not MULTI_REGION_AVAILABLE:
+        return {
+            "status": "Unavailable",
+            "detail": "multi_region_trainer module could not be imported."
+        }
+
+    trainer = _get_mr_trainer()
+    model_exists = trainer.model_exists()
+
+    regions_summary = {
+        key: {
+            "name": val["name"],
+            "state": val["state"],
+            "n_samples": val["n_samples"],
+            "geological_note": val["geological_note"],
+            "bbox": val["bbox"],
+        }
+        for key, val in MANGANESE_REGIONS.items()
+    }
+
+    return {
+        "status": "Online",
+        "phase": "Phase 15 - Multi-Region Training and LORO Validation",
+        "multi_region_model_ready": model_exists,
+        "total_regions": len(MANGANESE_REGIONS),
+        "total_synthetic_samples": sum(v["n_samples"] for v in MANGANESE_REGIONS.values()),
+        "validation_strategy": "Leave-One-Region-Out (LORO) Cross-Validation",
+        "regions": regions_summary,
+        "disclaimer": (
+            "Multi-region data is synthetically generated from known deposit coordinates "
+            "using the same proximity-based labeling logic as the primary training pipeline."
+        ),
+    }
+
+
+@app.post("/api/multiregion/train")
+def multiregion_train(force_regenerate: bool = False):
+    """
+    Triggers the full Phase 15 multi-region training pipeline:
+      1. Generates (or loads cached) synthetic region data for all 6 belts
+      2. Runs Leave-One-Region-Out cross-validation
+      3. Trains a final generalized model on all regions
+      4. Saves artifacts to models/multi_region/
+
+    Set force_regenerate=true to rebuild training data from scratch.
+    Returns the LORO aggregate metrics and per-fold breakdown.
+    """
+    from fastapi import HTTPException
+
+    if not MULTI_REGION_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="multi_region_trainer module is not available."
+        )
+
+    try:
+        report = run_full_multi_region_pipeline(
+            model_save_dir=model_dir,
+            force_regenerate=force_regenerate,
+        )
+        agg = report.get("aggregate_loro_metrics", {})
+        return {
+            "status": "success",
+            "message": "Phase 15 multi-region training complete.",
+            "aggregate_loro_metrics": agg,
+            "n_folds": agg.get("n_folds", 0),
+            "mean_f1_score": agg.get("mean_f1_score"),
+            "mean_accuracy": agg.get("mean_accuracy"),
+            "artifacts_dir": os.path.join(model_dir, "multi_region"),
+            "disclaimer": report.get("disclaimer", ""),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Multi-region training failed: {str(e)}")
+
+
+@app.get("/api/multiregion/results")
+def multiregion_results():
+    """
+    Returns the saved LORO evaluation report from the last training run.
+    Includes per-fold metrics by region, aggregate statistics,
+    and feature importance from the final generalized model.
+    Raises 404 if training has not been run yet (POST /api/multiregion/train first).
+    """
+    from fastapi import HTTPException
+
+    if not MULTI_REGION_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="multi_region_trainer module is not available."
+        )
+
+    try:
+        trainer = _get_mr_trainer()
+        report = trainer.load_evaluation_report()
+        return {
+            "status": "success",
+            "report": report,
+        }
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Phase 16: Multi-Region Location-Based Prediction
+# ---------------------------------------------------------------------------
+
+# Lazy-initialise the Phase 16 predictor (requires Phase 15 training artifacts)
+_mr_predictor = None
+_mr_predictor_error: Optional[str] = None
+
+
+def _get_mr_predictor():
+    """
+    Returns the singleton MultiRegionPredictor, initialising it on first call.
+    Raises HTTPException(503) if the Phase 15 model artifacts are not found.
+    """
+    global _mr_predictor, _mr_predictor_error
+    from fastapi import HTTPException
+
+    if _mr_predictor is not None:
+        return _mr_predictor
+
+    try:
+        from app.ml.multiregion_predictor import MultiRegionPredictor
+    except ImportError:
+        from ml.multiregion_predictor import MultiRegionPredictor
+
+    try:
+        _mr_predictor = MultiRegionPredictor(model_dir=model_dir)
+        _mr_predictor_error = None
+    except FileNotFoundError as e:
+        _mr_predictor_error = str(e)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Phase 15 multi-region model not found. "
+                "Run POST /api/multiregion/train first to generate model artifacts. "
+                f"Details: {_mr_predictor_error}"
+            ),
+        )
+    return _mr_predictor
+
+
+@app.post("/api/predict/multiregion")
+def predict_multiregion(request: PredictionRequest):
+    """
+    Phase 16: Location-based prospectivity prediction using the Phase 15
+    multi-region Random Forest model.
+
+    Accepts latitude and longitude (same schema as /api/predict).
+    Returns:
+      - prediction_label, prospectivity_score, probabilities (if inside a
+        supported region)
+      - region_name, state, geological_note, nearest_deposit_name/dist_km
+      - is_validated_region: False + message if outside all 6 supported regions
+      - data_source and disclaimer for transparency
+
+    Coordinate validation: -90 ≤ lat ≤ 90, -180 ≤ lon ≤ 180 (Pydantic)
+    Unsupported regions: HTTP 200 with is_validated_region=False (not 4xx)
+    """
+    predictor_p16 = _get_mr_predictor()
+    try:
+        result = predictor_p16.predict(request.latitude, request.longitude)
+        return result
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=500,
+            detail=f"Multi-region prediction failed: {str(e)}"
+        )
+
+
+@app.get("/api/predict/multiregion/regions")
+def multiregion_regions():
+    """
+    Phase 16: Returns metadata for all 6 supported Indian manganese belt
+    regions, including bounding boxes and geological notes.
+    Does not require the Phase 15 model to be trained.
+    """
+    try:
+        from app.ml.multiregion_predictor import get_supported_regions
+    except ImportError:
+        from ml.multiregion_predictor import get_supported_regions
+
+    return {
+        "status": "success",
+        "total_regions": 6,
+        "regions": get_supported_regions(),
+        "note": (
+            "These are the regions for which the Phase 15 multi-region "
+            "RF model can generate predictions. Coordinates outside these "
+            "bounding boxes will receive is_validated_region=False."
+        ),
+    }

@@ -1,17 +1,27 @@
 {
-    "accuracy": 0.0,
-    "precision": 0.0,
-    "recall": 0.0,
-    "f1_score": 0.0,
-    "confusion_matrix": [
+    "spatial_cv_metrics": {
+        "accuracy": 0.38047925189947396,
+        "precision": 0.7049240205318216,
+        "recall": 0.38047925189947396,
+        "f1_score": 0.440298389367005
+    },
+    "full_dataset_confusion_matrix": [
         [
+            19,
             0,
-            2
+            0
         ],
         [
             0,
-            0
+            151,
+            1
+        ],
+        [
+            0,
+            0,
+            121
         ]
     ],
-    "dataset_limitations": "These results do not establish real-world geological prediction accuracy. They are based on a small sample dataset for pipeline validation only."
+    "spatial_blocks_count": 38,
+    "dataset_limitations": "Metrics reflect spatial cross-validation. Real-world geological accuracy still requires ground-truth multi-region verification."
 }

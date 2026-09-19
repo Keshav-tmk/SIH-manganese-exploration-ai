@@ -1,13 +1,14 @@
 {
     "feature_importances": {
-        "elevation": 0.33038949275362317,
-        "slope": 0.16062801932367152,
-        "vegetation_index": 0.1314915458937198,
-        "geological_feature_Limestone": 0.12379227053140097,
-        "geological_feature_Sandstone": 0.07759661835748792,
-        "geological_feature_Shale": 0.06695350241545894,
-        "geological_feature_Quartzite": 0.05563103864734299,
-        "geological_feature_Basalt": 0.05351751207729468
+        "elevation": 0.20202483280934522,
+        "B2": 0.11913235198430254,
+        "B12": 0.11003862251001109,
+        "B11": 0.10375533029642982,
+        "slope": 0.10154089777283742,
+        "NDVI": 0.09753059134333651,
+        "B3": 0.0957214245950008,
+        "B8": 0.08513832726166469,
+        "B4": 0.08511762142707192
     },
     "disclaimer": "Feature importance does not prove geological causation. This is experimentally derived from sample data."
 }

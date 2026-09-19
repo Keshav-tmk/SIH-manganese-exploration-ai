@@ -11,8 +11,20 @@ class ManganEXPredictor:
         
         self.model = None
         self.preprocessor = None
+        self.features_df = None
         
         self.load_model()
+
+    def haversine(self, lat1, lon1, lat2, lon2):
+        import numpy as np
+        R = 6371.0 # Earth radius in kilometers
+        phi1 = np.radians(lat1)
+        phi2 = np.radians(lat2)
+        delta_phi = np.radians(lat2 - lat1)
+        delta_lambda = np.radians(lon2 - lon1)
+        a = np.sin(delta_phi/2)**2 + np.cos(phi1) * np.cos(phi2) * np.sin(delta_lambda/2)**2
+        c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+        return R * c
 
     def load_model(self):
         """Safely load the model and preprocessor if they exist."""
@@ -23,6 +35,13 @@ class ManganEXPredictor:
             
         self.model = joblib.load(self.model_path)
         self.preprocessor = joblib.load(self.preprocessor_path)
+        
+        # Load the feature dataset for nearest-neighbor lookup
+        features_csv_path = os.path.join(os.path.dirname(self.model_dir), "data", "features", "features_X_real.csv")
+        if os.path.exists(features_csv_path):
+            self.features_df = pd.read_csv(features_csv_path)
+        else:
+            self.features_df = None
 
     def predict(self, input_data: dict) -> dict:
         """
@@ -32,21 +51,31 @@ class ManganEXPredictor:
         if self.model is None or self.preprocessor is None:
             raise RuntimeError("Model or preprocessor is not loaded.")
 
-        # Convert input dictionary to DataFrame (single row)
-        df_input = pd.DataFrame([input_data])
-        
-        # Ensure the required features for preprocessing exist
-        required_raw_features = ['elevation', 'slope', 'vegetation_index', 'geological_feature']
-        missing_features = [f for f in required_raw_features if f not in df_input.columns]
-        
-        if missing_features:
-            raise ValueError(f"Input data is missing required features: {missing_features}")
-
-        # Keep only the features that the preprocessor expects
-        df_input = df_input[required_raw_features]
+        # Look up nearest features if latitude and longitude are provided
+        if 'latitude' in input_data and 'longitude' in input_data and self.features_df is not None:
+            import numpy as np
+            lat = float(input_data['latitude'])
+            lon = float(input_data['longitude'])
+            
+            distances = self.haversine(lat, lon, self.features_df['latitude'].values, self.features_df['longitude'].values)
+            closest_idx = np.argmin(distances)
+            closest_row = self.features_df.iloc[closest_idx].to_dict()
+            
+            # Use closest features
+            df_input = pd.DataFrame([closest_row])
+        else:
+            # Convert input dictionary to DataFrame (single row)
+            df_input = pd.DataFrame([input_data])
+            
+        # Drop latitude and longitude if they exist, as the model was trained without them
+        cols_to_drop = [c for c in ['latitude', 'longitude'] if c in df_input.columns]
+        if cols_to_drop:
+            df_input = df_input.drop(columns=cols_to_drop)
         
         # Apply the preprocessor (scaling/encoding)
         try:
+            print("EXPECTED FEATURES:", getattr(self.preprocessor, "feature_names_in_", "unknown"))
+            print("INPUT COLUMNS:", df_input.columns.tolist())
             X_processed = self.preprocessor.transform(df_input)
         except Exception as e:
             raise ValueError(f"Error during preprocessing: {str(e)}")

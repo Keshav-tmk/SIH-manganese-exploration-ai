@@ -1,7 +1,7 @@
 import httpx
 import sys
 
-BASE_URL = "http://localhost:8001/api"
+BASE_URL = "http://localhost:8000/api"
 
 def print_result(step, response):
     if response.status_code == 200:

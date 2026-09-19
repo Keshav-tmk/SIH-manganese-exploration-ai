@@ -2,66 +2,80 @@ import os
 import json
 import joblib
 import pandas as pd
+import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GroupKFold
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 from .dataset_prep import prepare_dataset
 
 def train_and_evaluate(features_path: str, labels_path: str, model_save_dir: str):
     """
-    Trains a Random Forest classifier, evaluates it, extracts feature importance,
-    and saves the model and metadata.
+    Trains a Random Forest classifier, evaluates it using Spatial GroupKFold,
+    extracts feature importance, and saves the final generalized model.
     """
     # 1. Dataset Preparation
     print("Preparing dataset...")
-    X_train, X_test, y_train, y_test, preprocessor, feature_names, prep_report = prepare_dataset(features_path, labels_path)
+    X, y, coords, preprocessor, feature_names, prep_report = prepare_dataset(features_path, labels_path)
     
-    # 2. Model Training
-    print("Training Random Forest Classifier...")
-    # Use class_weight='balanced' to handle potential class imbalances
-    model = RandomForestClassifier(random_state=42, class_weight='balanced', n_estimators=100)
-    
-    # If the dataset has only 1 class (e.g. sample data edge case), we handle it safely
-    unique_classes = y_train.unique()
-    if len(unique_classes) < 2:
-        print(f"WARNING: Only one class '{unique_classes[0]}' present in training data. Model will predict this class constantly.")
-    
-    model.fit(X_train, y_train)
-    
-    # 3. Model Evaluation
-    print("Evaluating model...")
-    y_pred = model.predict(X_test)
-    
-    # Check if we can compute multiclass metrics safely
-    all_classes_test = y_test.unique()
-    if len(all_classes_test) < 2 and len(unique_classes) < 2:
-        # Edge case: Sample data might have only one class in the test set too.
-        accuracy = accuracy_score(y_test, y_pred)
-        precision, recall, f1 = 0.0, 0.0, 0.0 # Meaningless for single class
-        conf_matrix = []
+    # 2. Spatial Cross Validation
+    print("Assigning Spatial Blocks for Cross-Validation...")
+    if not coords.empty:
+        # 0.1 degree is roughly 11km at equator, enough to group nearby pixels
+        groups = coords.apply(lambda row: f"{round(row['latitude'], 1)}_{round(row['longitude'], 1)}", axis=1).values
     else:
-        accuracy = accuracy_score(y_test, y_pred)
-        # We use weighted average for multi-class support
-        precision = precision_score(y_test, y_pred, average='weighted', zero_division=0)
-        recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
-        f1 = f1_score(y_test, y_pred, average='weighted', zero_division=0)
-        conf_matrix = confusion_matrix(y_test, y_pred).tolist()
-
+        groups = np.arange(len(X))
+        
+    unique_groups = len(np.unique(groups))
+    unique_classes = y.unique()
+    
+    metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1_score': []}
+    
+    if unique_groups >= 3 and len(unique_classes) >= 2:
+        n_splits = min(5, unique_groups)
+        print(f"Running Spatial GroupKFold CV with {n_splits} splits...")
+        gkf = GroupKFold(n_splits=n_splits)
+        
+        for train_idx, test_idx in gkf.split(X, y, groups=groups):
+            X_train, X_test = X[train_idx], X[test_idx]
+            y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+            
+            if len(y_train.unique()) < 2:
+                continue
+                
+            model_cv = RandomForestClassifier(random_state=42, class_weight='balanced', n_estimators=100)
+            model_cv.fit(X_train, y_train)
+            
+            y_pred = model_cv.predict(X_test)
+            metrics['accuracy'].append(accuracy_score(y_test, y_pred))
+            metrics['precision'].append(precision_score(y_test, y_pred, average='weighted', zero_division=0))
+            metrics['recall'].append(recall_score(y_test, y_pred, average='weighted', zero_division=0))
+            metrics['f1_score'].append(f1_score(y_test, y_pred, average='weighted', zero_division=0))
+    else:
+        print("WARNING: Not enough spatial blocks or classes for spatial CV. Metrics will be zeroed.")
+        
+    avg_metrics = {k: float(np.mean(v)) if v else 0.0 for k, v in metrics.items()}
+    
+    # 3. Train Final Model
+    print("Training Final Model on Full Valid Dataset...")
+    model = RandomForestClassifier(random_state=42, class_weight='balanced', n_estimators=100)
+    model.fit(X, y)
+    
+    # Evaluate full model on itself to get shape of confusion matrix
+    y_pred_full = model.predict(X)
+    conf_matrix = confusion_matrix(y, y_pred_full).tolist()
+    
     evaluation_report = {
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "f1_score": f1,
-        "confusion_matrix": conf_matrix,
-        "dataset_limitations": "These results do not establish real-world geological prediction accuracy. They are based on a small sample dataset for pipeline validation only."
+        "spatial_cv_metrics": avg_metrics,
+        "full_dataset_confusion_matrix": conf_matrix,
+        "spatial_blocks_count": unique_groups,
+        "dataset_limitations": "Metrics reflect spatial cross-validation. Real-world geological accuracy still requires ground-truth multi-region verification."
     }
 
     # 4. Feature Importance
     importances = model.feature_importances_
-    # Create a sorted dictionary of feature importances
     feature_importance_dict = {
         feature_names[i]: float(importances[i]) for i in range(len(feature_names))
     }
-    # Sort by importance (descending)
     sorted_importances = dict(sorted(feature_importance_dict.items(), key=lambda item: item[1], reverse=True))
     
     importance_report = {
@@ -92,7 +106,7 @@ def train_and_evaluate(features_path: str, labels_path: str, model_save_dir: str
         "model_type": "RandomForestClassifier",
         "features": feature_names,
         "preparation_report": prep_report,
-        "dataset_type": "sample",
+        "validation_strategy": "Spatial GroupKFold",
         "training_date": pd.Timestamp.now().isoformat()
     }
     with open(metadata_path, "w") as f:
@@ -103,10 +117,11 @@ def train_and_evaluate(features_path: str, labels_path: str, model_save_dir: str
 
 if __name__ == "__main__":
     import sys
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    # traverse from ml -> app -> backend -> project root
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     
-    f_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(base_dir, "../data/features/features_X.csv")
-    l_path = sys.argv[2] if len(sys.argv) > 2 else os.path.join(base_dir, "../data/features/labels_y.csv")
-    m_dir = sys.argv[3] if len(sys.argv) > 3 else os.path.join(base_dir, "../models")
+    f_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(base_dir, "data", "features", "features_X_real.csv")
+    l_path = sys.argv[2] if len(sys.argv) > 2 else os.path.join(base_dir, "data", "features", "labels_y_real.csv")
+    m_dir = sys.argv[3] if len(sys.argv) > 3 else os.path.join(base_dir, "models")
     
     train_and_evaluate(f_path, l_path, m_dir)

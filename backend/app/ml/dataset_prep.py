@@ -20,8 +20,11 @@ def prepare_dataset(features_path: str, labels_path: str):
     y_raw = pd.read_csv(labels_path)
 
     # 1. Feature Selection
-    # Drop pure geographical coordinates and previously scaled features to prevent spatial overfitting and double scaling
-    exclude_cols = ['latitude', 'longitude', 'elevation_scaled', 'slope_scaled', 'is_sample']
+    # Extract coordinates for spatial cross-validation
+    coords = X_raw[['latitude', 'longitude']].copy() if 'latitude' in X_raw.columns else pd.DataFrame()
+    
+    # Exclude non-predictive features and spatial coordinates to prevent leakage
+    exclude_cols = ['is_sample', 'latitude', 'longitude']
     X = X_raw.drop(columns=[col for col in exclude_cols if col in X_raw.columns])
 
     # 2. Target Selection
@@ -34,56 +37,44 @@ def prepare_dataset(features_path: str, labels_path: str):
     valid_idx = y.notna()
     X = X[valid_idx]
     y = y[valid_idx]
+    if not coords.empty:
+        coords = coords[valid_idx]
     
     if len(X) == 0:
         raise ValueError("No valid records remain after dropping missing targets.")
 
     # 4. Preprocessing Pipeline Definition
-    categorical_features = ['geological_feature']
-    # Scale elevation and slope
-    numeric_to_scale = ['elevation', 'slope']
-    # Keep others as pass through (e.g., vegetation_index)
+    categorical_features = []
+    # Scale all numeric features
+    numeric_to_scale = ['elevation', 'slope', 'NDVI', 'B2', 'B3', 'B4', 'B8', 'B11', 'B12']
     numeric_features = [col for col in X.columns if col not in categorical_features]
 
     # Preprocessor using ColumnTransformer
     preprocessor = ColumnTransformer(
         transformers=[
-            ('cat', OneHotEncoder(handle_unknown='ignore'), [c for c in categorical_features if c in X.columns]),
             ('num', StandardScaler(), [c for c in numeric_to_scale if c in X.columns])
         ],
         remainder='passthrough'
     )
 
-    # 5. Train-Test Split (with fallbacks for small/sample datasets)
-    class_counts = y.value_counts()
-    min_class_count = class_counts.min()
-
-    if len(X) < 10 or min_class_count < 2:
-        print("WARNING: Dataset is too small or classes are too imbalanced for stratified splitting. Falling back to random split.")
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    else:
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-
-    # 6. Fit Preprocessor (only on training data to prevent leakage)
-    X_train_processed = preprocessor.fit_transform(X_train)
-    X_test_processed = preprocessor.transform(X_test)
+    # 5. Fit Preprocessor on the entire dataset
+    # We defer train/test splitting to model_trainer.py for spatial cross-validation
+    X_processed = preprocessor.fit_transform(X)
     
     # Get feature names after encoding
-    # Get categorical names
-    cat_names = preprocessor.named_transformers_['cat'].get_feature_names_out(categorical_features)
-    # Combine with remainder (numeric) names
-    feature_names = list(cat_names) + numeric_features
+    scaled_features = [c for c in numeric_to_scale if c in X.columns]
+    remainder_features = [c for c in X.columns if c not in scaled_features]
+    feature_names = scaled_features + remainder_features
 
+    class_counts = y.value_counts()
+    
     report = {
         "original_rows": len(X_raw),
         "valid_rows": len(X),
         "features_used": list(X.columns),
-        "categorical_encoded": list(cat_names),
         "numeric_kept": numeric_features,
         "classes_found": y.unique().tolist(),
-        "train_size": len(X_train),
-        "test_size": len(X_test),
         "class_distribution": class_counts.to_dict()
     }
 
-    return X_train_processed, X_test_processed, y_train, y_test, preprocessor, feature_names, report
+    return X_processed, y, coords, preprocessor, feature_names, report

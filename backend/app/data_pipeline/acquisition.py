@@ -115,6 +115,100 @@ class DataAcquisitionManager:
         }
         self._save_metadata("karnataka_pilot", metadata)
 
+    def download_multi_region_data(self):
+        """
+        Phase 15: Provides acquisition instructions and metadata for all six
+        major Indian manganese mineral belts used in multi-region training.
+
+        Regions covered:
+          1. Sandur-Ballari, Karnataka       (existing pilot)
+          2. Nagpur-Bhandara, Maharashtra
+          3. Balaghat, Madhya Pradesh
+          4. Sundergarh, Odisha
+          5. North Goa, Goa
+          6. Vizianagaram, Andhra Pradesh
+
+        Each region entry records its bounding box and recommended data sources
+        for future real-data integration.
+        """
+        regions = [
+            {
+                "key": "sandur_ballari",
+                "name": "Sandur-Ballari, Karnataka",
+                "bbox": (76.45, 14.85, 76.75, 15.27),
+                "sources": ["GSI Bhukosh", "ISRO Bhuvan DEM", "Copernicus Sentinel-2"],
+                "note": "Primary pilot region — real Sentinel-2 data already partially acquired."
+            },
+            {
+                "key": "nagpur_bhandara",
+                "name": "Nagpur-Bhandara, Maharashtra",
+                "bbox": (79.55, 20.85, 80.10, 21.45),
+                "sources": ["NGDR Portal", "SRTM Tiles", "Sentinel-2 L2A"],
+                "note": "Gondite-type deposits; key Maharashtra manganese production zone."
+            },
+            {
+                "key": "balaghat",
+                "name": "Balaghat, Madhya Pradesh",
+                "bbox": (80.25, 21.75, 80.75, 22.30),
+                "sources": ["GSI District Reports", "SRTM", "Landsat-8 OLI"],
+                "note": "Second-largest Mn belt in MP; accessible via Bhuvan."
+            },
+            {
+                "key": "sundergarh",
+                "name": "Sundergarh, Odisha",
+                "bbox": (84.05, 22.00, 84.55, 22.55),
+                "sources": ["Odisha Mining Corporation GIS", "SRTM", "Sentinel-2"],
+                "note": "Lateritized Mn; Odisha is India's top Mn-producing state."
+            },
+            {
+                "key": "north_goa",
+                "name": "North Goa, Goa",
+                "bbox": (73.85, 15.45, 74.25, 15.80),
+                "sources": ["Goa Mineral Survey Dept.", "Bhuvan DEM", "Sentinel-2"],
+                "note": "Laterite-capped Mn. Smaller belt but geologically distinct."
+            },
+            {
+                "key": "vizianagaram",
+                "name": "Vizianagaram, Andhra Pradesh",
+                "bbox": (83.35, 18.40, 83.85, 18.90),
+                "sources": ["APMDP Reports", "SRTM", "Sentinel-2 L2A"],
+                "note": "Metamorphic Mn in Eastern Ghats Mobile Belt khondalites."
+            },
+        ]
+
+        print("\n=== Phase 15: Multi-Region Data Acquisition Framework ===")
+        all_metadata = {}
+
+        for region in regions:
+            print(f"\n--- {region['name']} ---")
+            print(f"  Bounding Box (Lon_Min, Lat_Min, Lon_Max, Lat_Max): {region['bbox']}")
+            print("  Recommended Data Sources:")
+            for src in region["sources"]:
+                print(f"    • {src}")
+            print(f"  Note: {region['note']}")
+            print(f"  Place data in: {self.raw_dir / region['key']}")
+            (self.raw_dir / region["key"]).mkdir(parents=True, exist_ok=True)
+
+            all_metadata[region["key"]] = {
+                "name": region["name"],
+                "bbox_lon_min_lat_min_lon_max_lat_max": list(region["bbox"]),
+                "sources": region["sources"],
+                "note": region["note"],
+                "status": "Pending Data Ingestion",
+            }
+
+        combined_metadata = {
+            "phase": "Phase 15 – Multi-Region Training",
+            "regions": all_metadata,
+            "instructions": (
+                "Download satellite imagery, DEMs, and geological shapefiles for each region. "
+                "Place data in the corresponding subdirectory under data/raw/. "
+                "Run generate_training_data.py per region once real data is available."
+            )
+        }
+        self._save_metadata("multi_region_acquisition", combined_metadata)
+        print(f"\nMulti-region acquisition metadata saved to {self.metadata_dir}")
+
 if __name__ == "__main__":
     # Test the acquisition framework
     import sys

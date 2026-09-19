@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, LayersControl, Rectangle } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { SUPPORTED_REGIONS } from './RegionSelector';
 
 // Fix for default marker icon missing in Leaflet when used with webpack/vite
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -53,19 +53,23 @@ const RecenterAutomatically = ({ lat, lng }) => {
   return null;
 }
 
-// Component to handle map clicks
-const MapClickHandler = ({ onMapClick }) => {
+const MapClickHandler = ({ onMapClick, onLayerUnavailable }) => {
   useMapEvents({
     click(e) {
       if (onMapClick) {
         onMapClick(e.latlng.lat, e.latlng.lng);
+      }
+    },
+    overlayadd(e) {
+      if (onLayerUnavailable && (e.name === 'Geological Boundaries' || e.name === 'Elevation Contours')) {
+        onLayerUnavailable(e.name);
       }
     }
   });
   return null;
 }
 
-const MapComponent = ({ activeLocation, markers, onMapClick, pilotRegion }) => {
+const MapComponent = ({ activeLocation, markers, onMapClick, onLayerUnavailable, pilotRegion, showRegionBboxes, highlightedRegionKey }) => {
   const defaultPosition = [20.5937, 78.9629]; // Center of India
   
   // Parse bounding box if available
@@ -98,25 +102,24 @@ const MapComponent = ({ activeLocation, markers, onMapClick, pilotRegion }) => {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
           </LayersControl.BaseLayer>
-          <LayersControl.BaseLayer name="Satellite Imagery (Coming Soon)">
-            {/* Placeholder - using standard OSM for now to represent future satellite integration */}
+          <LayersControl.BaseLayer name="Satellite Imagery">
             <TileLayer
-              attribution='&copy; Satellite Provider Placeholder'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              className="filter grayscale" 
+              attribution='&copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
             />
           </LayersControl.BaseLayer>
           
-          <LayersControl.Overlay name="Geological Boundaries (Coming Soon)">
-            {/* Placeholder for geological WMS or GeoJSON layers */}
-            <TileLayer url="" />
+          <LayersControl.Overlay name="Geological Boundaries">
+            {/* Transparent placeholder that triggers overlayadd event to show warning */}
+            <TileLayer url="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" opacity={0} />
           </LayersControl.Overlay>
-          <LayersControl.Overlay name="Elevation Contours (Coming Soon)">
-            <TileLayer url="" />
+          <LayersControl.Overlay name="Elevation Contours">
+            {/* Transparent placeholder that triggers overlayadd event to show warning */}
+            <TileLayer url="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" opacity={0} />
           </LayersControl.Overlay>
         </LayersControl>
         
-        <MapClickHandler onMapClick={onMapClick} />
+        <MapClickHandler onMapClick={onMapClick} onLayerUnavailable={onLayerUnavailable} />
         
         {/* Render Pilot Region Bounding Box */}
         {bounds && (
@@ -134,6 +137,50 @@ const MapComponent = ({ activeLocation, markers, onMapClick, pilotRegion }) => {
           </Rectangle>
         )}
         
+        {/* Phase 16: Render the 6 supported manganese belt bboxes */}
+        {showRegionBboxes && SUPPORTED_REGIONS.map((region) => {
+          // Reverse-engineer bbox from center + known bbox extents stored in SUPPORTED_REGIONS
+          // We hardcode the bbox corners that match Phase 15 MANGANESE_REGIONS exactly:
+          const REGION_BBOXES = {
+            sandur_ballari:   { lat_min: 14.85, lat_max: 15.27, lon_min: 76.45, lon_max: 76.75 },
+            nagpur_bhandara:  { lat_min: 20.85, lat_max: 21.45, lon_min: 79.55, lon_max: 80.10 },
+            balaghat:         { lat_min: 21.75, lat_max: 22.30, lon_min: 80.25, lon_max: 80.75 },
+            sundergarh:       { lat_min: 22.00, lat_max: 22.55, lon_min: 84.05, lon_max: 84.55 },
+            north_goa:        { lat_min: 15.45, lat_max: 15.80, lon_min: 73.85, lon_max: 74.25 },
+            vizianagaram:     { lat_min: 18.40, lat_max: 18.90, lon_min: 83.35, lon_max: 83.85 },
+          };
+          const bbox = REGION_BBOXES[region.key];
+          if (!bbox) return null;
+          const leafletBounds = [[bbox.lat_min, bbox.lon_min], [bbox.lat_max, bbox.lon_max]];
+          const isHighlighted = highlightedRegionKey === region.key;
+          return (
+            <Rectangle
+              key={region.key}
+              bounds={leafletBounds}
+              pathOptions={{
+                color: region.color,
+                weight: isHighlighted ? 3 : 1.5,
+                fillOpacity: isHighlighted ? 0.18 : 0.07,
+                dashArray: isHighlighted ? '4, 4' : '6, 6',
+              }}
+            >
+              <Popup>
+                <div className="font-sans min-w-[200px]">
+                  <div className="flex items-center gap-1.5 font-bold text-gray-800 border-b pb-1 mb-1">
+                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: region.color }} />
+                    {region.name}
+                  </div>
+                  <p className="text-xs text-gray-500 font-semibold">{region.state}</p>
+                  <p className="text-[11px] text-gray-600 mt-1 leading-snug">{region.geologicalNote}</p>
+                  <p className="text-[10px] text-gray-400 mt-1.5">
+                    Phase 15 supported region · Click map or use Region Selector to predict.
+                  </p>
+                </div>
+              </Popup>
+            </Rectangle>
+          );
+        })}
+
         {activeLocation && activeLocation.lat && activeLocation.lng && (
           <RecenterAutomatically lat={activeLocation.lat} lng={activeLocation.lng} />
         )}
@@ -186,7 +233,7 @@ const MapComponent = ({ activeLocation, markers, onMapClick, pilotRegion }) => {
       </MapContainer>
       
       {/* Map Legend */}
-      <div className="absolute bottom-6 right-2 z-[400] bg-white/90 backdrop-blur-sm p-3 rounded-lg shadow-md border border-gray-200 text-xs">
+      <div className="absolute bottom-6 right-2 z-[400] bg-white/90 backdrop-blur-sm p-3 rounded-lg shadow-md border border-gray-200 text-xs max-w-[200px]">
         <h4 className="font-bold text-gray-800 mb-2 border-b pb-1">Prospectivity Legend</h4>
         <div className="space-y-1.5">
           <div className="flex items-center">
@@ -201,6 +248,32 @@ const MapComponent = ({ activeLocation, markers, onMapClick, pilotRegion }) => {
             <div className="w-3 h-3 rounded-full bg-green-500 border border-white shadow-sm mr-2"></div>
             <span className="text-gray-700">Low Priority</span>
           </div>
+        </div>
+        {showRegionBboxes && (
+          <>
+            <h4 className="font-bold text-gray-800 mt-3 mb-1.5 border-t pt-2">Phase 15 Regions</h4>
+            <div className="space-y-1">
+              {SUPPORTED_REGIONS.map(r => (
+                <div key={r.key} className="flex items-center gap-1.5">
+                  <span
+                    className="inline-block w-6 flex-shrink-0"
+                    style={{ borderBottom: `2px dashed ${r.color}`, display: 'inline-block' }}
+                  />
+                  <span className="text-gray-600 leading-tight" style={{ fontSize: '10px' }}>
+                    {r.state}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        <div className="mt-3 pt-2 border-t border-gray-200">
+          <p className="text-[10px] text-gray-500 font-medium">Data Sources:</p>
+          <ul className="text-[9px] text-gray-400 list-disc list-inside">
+            <li>OSM: OpenStreetMap contributors</li>
+            <li>Satellite: Esri World Imagery</li>
+            <li>Elevation/Geology: Subject to Auth/Acquisition</li>
+          </ul>
         </div>
       </div>
     </div>

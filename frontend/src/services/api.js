@@ -88,4 +88,44 @@ export const predictProspectivity = async (data) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Phase 16: Multi-Region Location-Based Prediction
+// ---------------------------------------------------------------------------
+
+/**
+ * Predicts prospectivity using the Phase 15 multi-region Random Forest model.
+ * Returns is_validated_region=false (not an error) when the coordinate is
+ * outside all 6 supported Indian manganese belt regions.
+ */
+export const predictMultiRegion = async (data) => {
+  try {
+    const response = await api.post('/predict/multiregion', data);
+    return response.data;
+  } catch (error) {
+    console.error("Multi-region prediction failed:", error);
+    if (error.response?.data?.detail) {
+      const detail = error.response.data.detail;
+      if (Array.isArray(detail)) {
+        throw new Error(detail.map(err => `${err.loc.join('.')}: ${err.msg}`).join(' | '));
+      }
+      throw new Error(detail);
+    }
+    throw new Error(error.message || "Failed to connect to the multi-region prediction service.");
+  }
+};
+
+/**
+ * Returns metadata for all 6 supported Indian manganese belt regions.
+ * Does not require the Phase 15 model to be trained.
+ */
+export const getMultiRegionRegions = async () => {
+  try {
+    const response = await api.get('/predict/multiregion/regions');
+    return response.data;
+  } catch (error) {
+    console.error("Multi-region regions fetch failed:", error);
+    throw error;
+  }
+};
+
 export default api;

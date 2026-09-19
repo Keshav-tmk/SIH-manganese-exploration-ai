@@ -15,10 +15,12 @@
     "autoprefixer": "^10.6.1",
     "axios": "^1.20.0",
     "leaflet": "^1.9.4",
+    "plotly.js-dist-min": "^4.1.1",
     "postcss": "^8.5.28",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-leaflet": "^5.0.0",
+    "react-plotly.js": "^4.1.0",
     "recharts": "^3.10.1",
     "tailwindcss": "^4.3.3"
   },

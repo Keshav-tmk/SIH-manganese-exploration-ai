@@ -1,49 +1,52 @@
 {
     "model_type": "RandomForestClassifier",
     "features": [
-        "geological_feature_Basalt",
-        "geological_feature_Limestone",
-        "geological_feature_Quartzite",
-        "geological_feature_Sandstone",
-        "geological_feature_Shale",
         "elevation",
         "slope",
-        "vegetation_index"
+        "NDVI",
+        "B2",
+        "B3",
+        "B4",
+        "B8",
+        "B11",
+        "B12"
     ],
     "preparation_report": {
-        "original_rows": 7,
-        "valid_rows": 7,
+        "original_rows": 292,
+        "valid_rows": 292,
         "features_used": [
             "elevation",
             "slope",
-            "vegetation_index",
-            "geological_feature"
-        ],
-        "categorical_encoded": [
-            "geological_feature_Basalt",
-            "geological_feature_Limestone",
-            "geological_feature_Quartzite",
-            "geological_feature_Sandstone",
-            "geological_feature_Shale"
+            "NDVI",
+            "B2",
+            "B3",
+            "B4",
+            "B8",
+            "B11",
+            "B12"
         ],
         "numeric_kept": [
             "elevation",
             "slope",
-            "vegetation_index"
+            "NDVI",
+            "B2",
+            "B3",
+            "B4",
+            "B8",
+            "B11",
+            "B12"
         ],
         "classes_found": [
             "High",
-            "Low",
-            "Medium"
+            "Medium",
+            "Low"
         ],
-        "train_size": 5,
-        "test_size": 2,
         "class_distribution": {
-            "Low": 3,
-            "High": 2,
-            "Medium": 2
+            "Low": 152,
+            "Medium": 121,
+            "High": 19
         }
     },
-    "dataset_type": "sample",
-    "training_date": "2026-09-19T10:52:57.957671"
+    "validation_strategy": "Spatial GroupKFold",
+    "training_date": "2026-09-19T12:08:59.421050"
 }
