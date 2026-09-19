@@ -106,7 +106,7 @@ describe('Phase 16 – Multi-Region Prediction', () => {
     render(<App />);
     await waitFor(() => {
       expect(screen.getByText('Single-Region')).toBeInTheDocument();
-      expect(screen.getByText('Phase 15 Multi-Region')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Phase 15 Multi-Region' })).toBeInTheDocument();
     });
   });
 
@@ -118,9 +118,9 @@ describe('Phase 16 – Multi-Region Prediction', () => {
   });
 
   test('region selector IS visible after switching to multi-region mode', async () => {
-    const { getByText, getByLabelText } = render(<App />);
-    await waitFor(() => getByText('Phase 15 Multi-Region'));
-    getByText('Phase 15 Multi-Region').click();
+    const { getByRole, getByLabelText } = render(<App />);
+    await waitFor(() => getByRole('button', { name: 'Phase 15 Multi-Region' }));
+    getByRole('button', { name: 'Phase 15 Multi-Region' }).click();
     await waitFor(() => {
       expect(getByLabelText('Select Region')).toBeInTheDocument();
     });
@@ -138,10 +138,10 @@ describe('Phase 16 – Multi-Region Prediction', () => {
     });
 
     const { getByText, getByPlaceholderText, getByRole } = render(<App />);
-    await waitFor(() => getByText('Phase 15 Multi-Region'));
+    await waitFor(() => getByRole('button', { name: 'Phase 15 Multi-Region' }));
 
     // Switch to multi-region mode
-    getByText('Phase 15 Multi-Region').click();
+    getByRole('button', { name: 'Phase 15 Multi-Region' }).click();
     await waitFor(() => expect(getByText(/LORO-validated model/i)).toBeInTheDocument());
 
     // Fill in coordinates
@@ -180,8 +180,8 @@ describe('Phase 16 – Multi-Region Prediction', () => {
     });
 
     const { getByText, getByPlaceholderText, getByRole } = render(<App />);
-    await waitFor(() => getByText('Phase 15 Multi-Region'));
-    fireEvent.click(getByText('Phase 15 Multi-Region'));
+    await waitFor(() => getByRole('button', { name: 'Phase 15 Multi-Region' }));
+    fireEvent.click(getByRole('button', { name: 'Phase 15 Multi-Region' }));
 
     // Fill in coordinates
     const latInput = getByPlaceholderText('e.g. 21.12');
