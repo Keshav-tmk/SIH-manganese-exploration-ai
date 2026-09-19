@@ -1,0 +1,11 @@
+latitude,longitude,elevation,slope,vegetation_index,geological_feature,mineral_occurrence,prospectivity_label
+21.1234,85.5432,540.2,12.5,0.45,Basalt,Manganese,High
+21.1250,85.5410,550.0,14.0,0.42,Basalt,Manganese,High
+21.2000,85.6000,410.5,5.2,0.70,Sandstone,None,Low
+-100.0,85.6000,410.5,5.2,0.70,Sandstone,None,Low
+21.3000,85.7000,,10.1,0.60,Limestone,Iron,Medium
+21.4000,85.8000,320.1,invalid,0.50,Shale,None,Low
+21.1234,85.5432,540.2,12.5,0.45,Basalt,Manganese,High
+21.5000,85.9000,450.0,11.0,0.55,Basalt,Unknown,Medium
+21.6000,190.0000,300.0,8.0,0.65,Granite,None,Low
+21.7000,86.1000,400.0,9.0,,Quartzite,None,Low

@@ -1,0 +1,16 @@
+year,region,production_kt,demand_kt,data_source
+2010,India,2450.5,2300.0,Demo Source
+2011,India,2500.0,2400.5,Demo Source
+2012,India,2380.2,2500.0,Demo Source
+2013,India,2600.0,2650.0,Demo Source
+2014,India,2750.5,2700.5,Demo Source
+2015,India,2700.0,2850.0,Demo Source
+2016,India,2800.5,2950.0,Demo Source
+2017,India,2900.0,3050.5,Demo Source
+2018,India,2950.5,3100.0,Demo Source
+2019,India,3100.0,3200.5,Demo Source
+2020,India,2850.5,2950.0,Demo Source
+2021,India,3050.0,3300.0,Demo Source
+2022,India,3200.5,3450.5,Demo Source
+2023,India,3250.0,3550.0,Demo Source
+2024,India,3350.5,3650.0,Demo Source

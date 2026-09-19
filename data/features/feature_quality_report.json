@@ -1,0 +1,86 @@
+{
+    "total_records": 7,
+    "features": [
+        "latitude",
+        "longitude",
+        "elevation",
+        "slope",
+        "vegetation_index",
+        "geological_feature",
+        "elevation_scaled",
+        "slope_scaled",
+        "is_sample"
+    ],
+    "target_labels": [
+        "mineral_occurrence",
+        "prospectivity_label"
+    ],
+    "data_types": {
+        "latitude": "float64",
+        "longitude": "float64",
+        "elevation": "float64",
+        "slope": "float64",
+        "vegetation_index": "float64",
+        "geological_feature": "str",
+        "elevation_scaled": "float64",
+        "slope_scaled": "float64",
+        "is_sample": "bool"
+    },
+    "missing_values": {
+        "latitude": 0,
+        "longitude": 0,
+        "elevation": 0,
+        "slope": 0,
+        "vegetation_index": 0,
+        "geological_feature": 0,
+        "elevation_scaled": 0,
+        "slope_scaled": 0,
+        "is_sample": 0
+    },
+    "numeric_stats": {
+        "latitude": {
+            "min": 21.1234,
+            "max": 21.7,
+            "mean": 21.335485714285713,
+            "std": 0.21330647301141922
+        },
+        "longitude": {
+            "min": 85.541,
+            "max": 86.1,
+            "mean": 85.7406,
+            "std": 0.207496473865622
+        },
+        "elevation": {
+            "min": 320.1,
+            "max": 550.0,
+            "mean": 443.00714285714287,
+            "std": 80.74451698914004
+        },
+        "slope": {
+            "min": 0.0,
+            "max": 14.0,
+            "mean": 8.828571428571427,
+            "std": 4.790516425089013
+        },
+        "vegetation_index": {
+            "min": 0.42,
+            "max": 0.7,
+            "mean": 0.5349999999999999,
+            "std": 0.09438396756511845
+        },
+        "elevation_scaled": {
+            "min": -1.6441350086686506,
+            "max": 1.4312488112307618,
+            "mean": 4.7580986769649563e-17,
+            "std": 1.0801234497346435
+        },
+        "slope_scaled": {
+            "min": -1.9905885256368971,
+            "max": 1.1660081655025194,
+            "mean": 2.864771911755984e-16,
+            "std": 1.0801234497346432
+        }
+    },
+    "is_sample_data": true,
+    "suitability_for_phase_5": "Ready for structural pipeline testing, but NOT suitable for scientific model training."
+}
